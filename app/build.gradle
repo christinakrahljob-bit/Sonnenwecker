@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Jeder Build auf GitHub bekommt eine höhere Versionsnummer, damit Updates sich über die alte App installieren.
+def buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'de.christina.sonnenwecker'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'de.christina.sonnenwecker'
+        minSdk 26
+        targetSdk 34
+        versionCode buildNumber
+        versionName "1.0.${buildNumber}"
+    }
+
+    signingConfigs {
+        release {
+            // Fester Schlüssel nur für diese private App, damit Updates sich installieren lassen.
+            storeFile file('sonnenwecker.keystore')
+            storeType 'pkcs12'
+            storePassword 'sonnenwecker'
+            keyAlias 'sonnenwecker'
+            keyPassword 'sonnenwecker'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
