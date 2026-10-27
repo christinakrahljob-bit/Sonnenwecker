@@ -8,8 +8,12 @@ import android.content.Intent;
 public class TriggerReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context ctx, Intent intent) {
-        long target = intent.getLongExtra(Scheduler.EXTRA_TARGET, 0);
         Prefs p = new Prefs(ctx);
+        if (Scheduler.ACTION_RECHECK.equals(intent.getAction())) {
+            p.log("Neu geplant: " + Scheduler.reschedule(ctx).replace('\n', ' '));
+            return;
+        }
+        long target = intent.getLongExtra(Scheduler.EXTRA_TARGET, 0);
         if (target == 0 || target != p.nextTarget()) {
             p.log("Veralteter Auslöser ignoriert");
             return;
