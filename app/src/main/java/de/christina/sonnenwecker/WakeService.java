@@ -74,7 +74,7 @@ public class WakeService extends Service {
                 p.setLong("lastWakeTarget", target);
                 greet(p, target, false);
             } else if (ACTION_TEST_SUNRISE.equals(action)) {
-                sunrise(p, 60_000);
+                sunrise(p, 10 * 60_000L);
             } else if (ACTION_TEST_WAKE.equals(action)) {
                 greet(p, System.currentTimeMillis(), true);
             }

@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         root.addView(button("Lampen laden", v -> loadLights()));
         lightSpinner = new Spinner(this);
         root.addView(lightSpinner);
-        root.addView(button("Sonnenaufgang testen (1 Minute)", v -> {
+        root.addView(button("Sonnenaufgang testen (10 Minuten)", v -> {
             saveAll();
             startTest(WakeService.ACTION_TEST_SUNRISE);
         }));
