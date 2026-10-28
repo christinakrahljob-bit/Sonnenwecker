@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="icon_background">#2B2550</color>
+    <color name="bg">#FFF8F1</color>
+    <color name="wake_bg">#121016</color>
 </resources>

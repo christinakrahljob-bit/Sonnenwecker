@@ -6,15 +6,16 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Nötig, damit Android verrät, welche App einen Wecker gestellt hat -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -32,25 +33,62 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="Einstellungen" />
+
+        <activity
+            android:name=".StatusActivity"
+            android:exported="false"
+            android:label="Status und Einrichtung" />
+
+        <activity
+            android:name=".LogActivity"
+            android:exported="false"
+            android:label="Protokoll" />
+
+        <activity
+            android:name=".AlarmActivity"
+            android:exported="false"
+            android:directBootAware="true"
+            android:excludeFromRecents="true"
+            android:label="Guten Morgen"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:taskAffinity="de.christina.sonnenwecker.wecken"
+            android:theme="@style/WakeTheme"
+            android:turnScreenOn="true" />
+
         <receiver
-            android:name=".AlarmChangedReceiver"
+            android:name=".SystemReceiver"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.app.action.NEXT_ALARM_CLOCK_CHANGED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
         <receiver
             android:name=".TriggerReceiver"
+            android:directBootAware="true"
             android:exported="false" />
 
         <service
             android:name=".WakeService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".AlarmService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
     </application>
 </manifest>

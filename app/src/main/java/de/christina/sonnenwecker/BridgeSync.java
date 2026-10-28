@@ -191,9 +191,34 @@ public final class BridgeSync {
         return n.isEmpty() ? AUTOMATION_NAME : n;
     }
 
+    /**
+     * Ändert die Dauer des Sonnenaufgangs in der Hue-Automation (alle anderen Einstellungen bleiben).
+     * Blockierend. Gibt eine Meldung für die Anzeige zurück.
+     */
+    public static synchronized String setFade(Context ctx, int minutes) {
+        Prefs p = new Prefs(ctx);
+        try {
+            if (p.hueUser().isEmpty() || p.hueIp().isEmpty()) throw new Exception("Bridge noch nicht gekoppelt.");
+            JSONObject inst = find(p);
+            JSONObject config = inst.optJSONObject("configuration");
+            if (config == null) throw new Exception("Automation hat keine Einstellungen.");
+            JSONObject cfg = new JSONObject(config.toString());
+            cfg.put("fade_in_duration", new JSONObject().put("seconds", minutes * 60));
+            HueClient.putBehavior(p.hueIp(), p.hueUser(), inst.getString("id"), new JSONObject().put("configuration", cfg));
+            p.setLong("fadeMs", minutes * 60_000L);
+            p.log("Dauer des Sonnenaufgangs: " + minutes + " Min. ✓");
+            return "Dauer auf " + minutes + " Minuten gestellt";
+        } catch (Exception e) {
+            String s = "⚠ Dauer nicht geändert: " + e.getMessage();
+            p.log(s);
+            return s;
+        }
+    }
+
     private static String setStatus(Prefs p, String s) {
-        if (!s.equals(p.hueSync())) {
-            p.edit().putString("hueSync", s).apply();
+        boolean ok = !s.startsWith("⚠") && !s.startsWith("Bridge noch nicht");
+        if (!s.equals(p.hueSync()) || ok != p.hueOk()) {
+            p.edit().putString("hueSync", s).putBoolean("hueOk", ok).apply();
             p.log(s);
         }
         return s;

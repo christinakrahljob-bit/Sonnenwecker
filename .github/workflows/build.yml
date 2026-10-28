@@ -24,7 +24,17 @@ jobs:
           gradle-version: '8.9'
 
       - name: APK bauen
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Build-Protokoll bei Fehler bereitstellen
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete build-protokoll --yes --cleanup-tag || true
+          gh release create build-protokoll build.log --title "Build-Protokoll (Fehler)" --notes "Protokoll des fehlgeschlagenen Builds ${{ github.run_number }}" --prerelease
 
       - name: APK umbenennen
         run: cp app/build/outputs/apk/release/app-release.apk Sonnenwecker.apk
@@ -33,6 +43,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release delete build-protokoll --yes --cleanup-tag || true
           gh release delete neueste-version --yes --cleanup-tag || true
           gh release create neueste-version Sonnenwecker.apk \
             --title "Sonnenwecker – Build ${{ github.run_number }}" \

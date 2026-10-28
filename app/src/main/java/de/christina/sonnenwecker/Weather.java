@@ -7,21 +7,72 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
-/** Holt das Wetter (Open-Meteo, ohne Konto) und baut daraus den Begrüßungstext. */
+/** Holt das Wetter (Open-Meteo, ohne Konto), baut Begrüßungstext und Anzeige, sucht Orte. */
 public final class Weather {
     private Weather() { }
 
+    /** Ausgewertetes Wetter für einen Tag. */
+    public static final class Day {
+        public boolean ok;
+        public long max;
+        public int code;
+        public boolean midday;      // Mittagswetter heute ansagen?
+        public boolean middayOk;
+        public long middayTemp;
+        public int middayCode;
+        public int middayRain = -1; // Prozent, -1 = unbekannt
+    }
+
+    public static final class Place {
+        public final String name, detail;
+        public final double lat, lon;
+
+        Place(String name, String detail, double lat, double lon) {
+            this.name = name;
+            this.detail = detail;
+            this.lat = lat;
+            this.lon = lon;
+        }
+    }
+
     public static String fetchForecast(double lat, double lon) throws Exception {
-        String url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
+        return get("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
                 + "&daily=temperature_2m_max,weather_code"
                 + "&hourly=temperature_2m,weather_code,precipitation_probability"
-                + "&timezone=auto&forecast_days=2";
+                + "&timezone=auto&forecast_days=2");
+    }
+
+    /** Orte zu einem Namen suchen (für die Einstellung „Ort fürs Wetter“). */
+    public static List<Place> searchPlaces(String query) throws Exception {
+        String json = get("https://geocoding-api.open-meteo.com/v1/search?count=8&language=de&format=json&name="
+                + URLEncoder.encode(query.trim(), "UTF-8"));
+        List<Place> out = new ArrayList<>();
+        JSONArray r = new JSONObject(json).optJSONArray("results");
+        if (r == null) return out;
+        for (int i = 0; i < r.length(); i++) {
+            JSONObject o = r.getJSONObject(i);
+            StringBuilder d = new StringBuilder();
+            for (String k : new String[]{"admin1", "country"}) {
+                String v = o.optString(k, "");
+                if (!v.isEmpty()) {
+                    if (d.length() > 0) d.append(", ");
+                    d.append(v);
+                }
+            }
+            out.add(new Place(o.optString("name"), d.toString(), o.optDouble("latitude"), o.optDouble("longitude")));
+        }
+        return out;
+    }
+
+    private static String get(String url) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(10000);
         c.setReadTimeout(10000);
@@ -36,43 +87,25 @@ public final class Weather {
         }
     }
 
-    /**
-     * Baut den Begrüßungstext.
-     * @param forecastJson Antwort von Open-Meteo, oder null, wenn das Wetter nicht abrufbar war
-     * @param wakeTime     Weckzeit (für Uhrzeit, Datum und Wochentag)
-     * @param middayDays   Wochentage als Ziffern (Calendar.DAY_OF_WEEK), z. B. "24" für Mo und Mi
-     */
-    public static String greeting(String name, String forecastJson, long wakeTime, String middayDays) {
+    /** Wertet die Vorhersage für den Tag der Weckzeit aus. */
+    public static Day evaluate(String forecastJson, long wakeTime, String middayDays) {
+        Day d = new Day();
         Calendar cal = Calendar.getInstance();
         cal.setTimeInMillis(wakeTime);
-        int h = cal.get(Calendar.HOUR_OF_DAY);
-        int m = cal.get(Calendar.MINUTE);
-
-        StringBuilder t = new StringBuilder();
-        t.append("Guten Morgen, ").append(name).append("! ");
-        t.append("Es ist ").append(h).append(" Uhr");
-        if (m != 0) t.append(' ').append(m);
-        t.append(". ");
-
-        if (forecastJson == null) {
-            t.append("Das Wetter konnte ich gerade leider nicht abrufen.");
-            return t.toString();
-        }
+        int dow = cal.get(Calendar.DAY_OF_WEEK);
+        d.midday = middayDays != null && middayDays.indexOf(Character.forDigit(dow, 10)) >= 0;
+        if (forecastJson == null) return d;
         try {
             JSONObject j = new JSONObject(forecastJson);
             String day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(wakeTime));
-
             JSONObject daily = j.getJSONObject("daily");
             JSONArray days = daily.getJSONArray("time");
-            int di = -1;
+            int di = 0;
             for (int i = 0; i < days.length(); i++) if (day.equals(days.getString(i))) di = i;
-            if (di < 0) di = 0;
-            long max = Math.round(daily.getJSONArray("temperature_2m_max").getDouble(di));
-            int code = daily.getJSONArray("weather_code").getInt(di);
-            t.append("Heute wird es bis zu ").append(degrees(max)).append(join(describe(code))).append('.');
-
-            int dow = cal.get(Calendar.DAY_OF_WEEK);
-            if (middayDays != null && middayDays.indexOf(Character.forDigit(dow, 10)) >= 0) {
+            d.max = Math.round(daily.getJSONArray("temperature_2m_max").getDouble(di));
+            d.code = daily.getJSONArray("weather_code").getInt(di);
+            d.ok = true;
+            if (d.midday) {
                 JSONObject hourly = j.getJSONObject("hourly");
                 JSONArray times = hourly.getJSONArray("time");
                 JSONArray temps = hourly.getJSONArray("temperature_2m");
@@ -91,18 +124,57 @@ public final class Weather {
                     if (!rain.isNull(i)) rainMax = Math.max(rainMax, rain.getInt(i));
                 }
                 if (count > 0) {
-                    long avg = Math.round(sum / count);
-                    t.append(" Zwischen 12 und 14 Uhr wird es etwa ").append(degrees(avg))
-                            .append(join(describe(worst))).append('.');
-                    if (rainMax >= 0) {
-                        t.append(" Die Regenwahrscheinlichkeit liegt bei ").append(rainMax).append(" Prozent.");
-                    }
+                    d.middayOk = true;
+                    d.middayTemp = Math.round(sum / count);
+                    d.middayCode = worst;
+                    d.middayRain = rainMax;
                 }
             }
         } catch (Exception e) {
-            t.append("Das Wetter konnte ich gerade leider nicht auswerten.");
+            d.ok = false;
+        }
+        return d;
+    }
+
+    /** Begrüßungstext zum Vorlesen. */
+    public static String greeting(String name, Day d, long wakeTime) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(wakeTime);
+        int h = cal.get(Calendar.HOUR_OF_DAY);
+        int m = cal.get(Calendar.MINUTE);
+        StringBuilder t = new StringBuilder();
+        t.append("Guten Morgen, ").append(name).append("! ");
+        t.append("Es ist ").append(h).append(" Uhr");
+        if (m != 0) t.append(' ').append(m);
+        t.append(". ");
+        if (!d.ok) {
+            t.append("Das Wetter konnte ich gerade leider nicht abrufen.");
+            return t.toString();
+        }
+        t.append("Heute wird es bis zu ").append(degrees(d.max)).append(join(describe(d.code))).append('.');
+        if (d.middayOk) {
+            t.append(" Zwischen 12 und 14 Uhr wird es etwa ").append(degrees(d.middayTemp))
+                    .append(join(describe(d.middayCode))).append('.');
+            if (d.middayRain >= 0) t.append(" Die Regenwahrscheinlichkeit liegt bei ").append(d.middayRain).append(" Prozent.");
         }
         return t.toString();
+    }
+
+    /** Zeilen für den Weck-Bildschirm: {heute, mittags, Regen} – leere Zeichenkette, wenn nicht zutreffend. */
+    public static String[] display(Day d) {
+        if (!d.ok) return new String[]{"Wetter nicht verfügbar", "", ""};
+        String today = "Heute bis " + d.max + " °C, " + plain(describe(d.code));
+        String midday = "", rain = "";
+        if (d.middayOk) {
+            midday = "Mittags (12–14 Uhr): etwa " + d.middayTemp + " °C, " + plain(describe(d.middayCode));
+            if (d.middayRain >= 0) rain = "Regenwahrscheinlichkeit " + d.middayRain + " %";
+        }
+        return new String[]{today, midday, rain};
+    }
+
+    /** Kompatibilität: Text direkt aus der Vorhersage. */
+    public static String greeting(String name, String forecastJson, long wakeTime, String middayDays) {
+        return greeting(name, evaluate(forecastJson, wakeTime, middayDays), wakeTime);
     }
 
     private static String degrees(long v) {
@@ -113,6 +185,29 @@ public final class Weather {
 
     private static String join(String desc) {
         return desc.startsWith("mit ") ? ", " + desc : " und " + desc;
+    }
+
+    /** „mit leichtem Regen“ → „leichter Regen“ für die Anzeige. */
+    static String plain(String desc) {
+        switch (desc) {
+            case "mit Nieselregen": return "Nieselregen";
+            case "mit gefrierendem Nieselregen": return "gefrierender Nieselregen";
+            case "mit leichtem Regen": return "leichter Regen";
+            case "mit Regen": return "Regen";
+            case "mit starkem Regen": return "starker Regen";
+            case "mit gefrierendem Regen": return "gefrierender Regen";
+            case "mit leichtem Schneefall": return "leichter Schneefall";
+            case "mit Schneefall": return "Schneefall";
+            case "mit starkem Schneefall": return "starker Schneefall";
+            case "mit Schneegriesel": return "Schneegriesel";
+            case "mit leichten Regenschauern": return "leichte Regenschauer";
+            case "mit Regenschauern": return "Regenschauer";
+            case "mit heftigen Regenschauern": return "heftige Regenschauer";
+            case "mit Schneeschauern": return "Schneeschauer";
+            case "mit Gewitter": return "Gewitter";
+            case "mit Gewitter und Hagel": return "Gewitter und Hagel";
+            default: return desc;
+        }
     }
 
     /** WMO-Wettercode in deutsche Worte. */

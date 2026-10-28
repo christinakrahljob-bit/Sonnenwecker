@@ -2,135 +2,90 @@ package de.christina.sonnenwecker;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.TimePickerDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Typeface;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
-import android.provider.Settings;
 import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.ArrayList;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
-/** Einstellungsbildschirm: Bridge koppeln, Hue-Automation prüfen, Lautsprecher wählen, testen. */
+/** Startbildschirm: Wecker-Liste wie in der Uhr-App. */
 public class MainActivity extends Activity {
-    private static final String[] DAY_LABELS = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
-    private static final int[] DAY_VALUES = {2, 3, 4, 5, 6, 7, 1}; // Calendar.DAY_OF_WEEK
-
+    private Ui ui;
     private Prefs prefs;
-    private LinearLayout root;
-    private TextView status, log, hueState, automationState;
-    private EditText ipEdit, nameEdit, radioEdit, latEdit, lonEdit, volumeEdit;
-    private Spinner speakerSpinner;
-    private final CheckBox[] dayBoxes = new CheckBox[7];
-    private Button batteryButton;
-    private List<CastDiscovery.Device> speakers = new ArrayList<>();
+    private AlarmStore store;
+    private LinearLayout nextCard, list;
+    private int expandedId = -1;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        ui = new Ui(this);
+        ui.applyWindow();
         prefs = new Prefs(this);
-        setTitle("Sonnenwecker");
+        store = new AlarmStore(this);
+        Ringing.ensureChannels(this);
+        if (state != null) expandedId = state.getInt("expanded", -1);
 
+        FrameLayout frame = new FrameLayout(this);
         ScrollView scroll = new ScrollView(this);
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(16);
-        root.setPadding(pad, pad, pad, pad * 2);
+        scroll.setClipToPadding(false);
+        LinearLayout root = ui.col();
+        root.setPadding(0, 0, 0, ui.dp(112));
         scroll.addView(root);
-        setContentView(scroll);
+        frame.addView(scroll);
 
-        status = text("", 17, true);
-        root.addView(status);
-        batteryButton = button("Akku-Optimierung für die App ausschalten", v -> askBatteryExemption());
-        root.addView(batteryButton);
-        root.addView(hint("Wichtig: Stelle deinen Wecker ganz normal in der Uhr-App. Die App erkennt ihn automatisch."));
+        LinearLayout header = ui.header("Sonnenwecker", false);
+        ImageButton settings = ui.iconButton(R.drawable.i_settings, "Einstellungen", ui.p.text2);
+        settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        header.addView(settings);
+        root.addView(header);
 
-        // --- Hue ---
-        root.addView(header("1. Hue-Sonnenaufgang"));
-        ipEdit = edit("IP-Adresse der Bridge", prefs.hueIp(), InputType.TYPE_CLASS_TEXT);
-        root.addView(ipEdit);
-        root.addView(button("Bridge automatisch suchen", v -> findBridge()));
-        root.addView(hint("Zum Koppeln: runden Knopf oben auf der Bridge drücken, dann innerhalb von 30 Sekunden hier tippen."));
-        root.addView(button("Mit Bridge koppeln", v -> pairBridge()));
-        hueState = hint("");
-        root.addView(hueState);
-        root.addView(hint("Lege in der Hue-App unter Automationen → Aufwachen eine Automation mit dem Namen „"
-                + BridgeSync.AUTOMATION_NAME + "“ an: Iris, Stil Sonnenaufgang, Dauer nach Wunsch. "
-                + "Uhrzeit und Wochentag stellt diese App automatisch passend zu deinem Wecker."));
-        automationState = text("", 15, true);
-        root.addView(automationState);
-        root.addView(button("Sonnenaufgang testen", v -> testSunrise()));
-        root.addView(hint("Der Test stellt die Automation so, dass der Sonnenaufgang in 1–2 Minuten beginnt. "
-                + "Danach stellt die App sie automatisch auf deinen Wecker zurück."));
+        LinearLayout body = ui.col();
+        body.setPadding(ui.dp(16), 0, ui.dp(16), 0);
+        root.addView(body);
 
-        // --- Lautsprecher ---
-        root.addView(header("2. Lautsprecher"));
-        root.addView(button("Lautsprecher im WLAN suchen", v -> findSpeakers()));
-        speakerSpinner = new Spinner(this);
-        root.addView(speakerSpinner);
-        volumeEdit = edit("Lautstärke in %", String.valueOf(prefs.volumePercent()), InputType.TYPE_CLASS_NUMBER);
-        root.addView(label("Lautstärke in %"));
-        root.addView(volumeEdit);
-        root.addView(button("Begrüßung + Radio jetzt testen", v -> {
-            saveAll();
-            startTest(WakeService.ACTION_TEST_WAKE);
-        }));
+        nextCard = ui.card(ui.p.surface, 24);
+        nextCard.setPadding(ui.dp(18), ui.dp(14), ui.dp(18), ui.dp(16));
+        body.addView(nextCard, ui.fill());
 
-        // --- Einstellungen ---
-        root.addView(header("3. Einstellungen"));
-        root.addView(label("Name in der Begrüßung"));
-        nameEdit = edit("Name", prefs.name(), InputType.TYPE_CLASS_TEXT);
-        root.addView(nameEdit);
-        root.addView(label("Radio-Adresse (Stream)"));
-        radioEdit = edit("https://…", prefs.radioUrl(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        root.addView(radioEdit);
-        root.addView(label("Ort fürs Wetter (Breitengrad / Längengrad)"));
-        int dec = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED;
-        latEdit = edit("Breitengrad", String.valueOf(prefs.lat()), dec);
-        lonEdit = edit("Längengrad", String.valueOf(prefs.lon()), dec);
-        root.addView(latEdit);
-        root.addView(lonEdit);
-        root.addView(label("Mittagswetter (12–14 Uhr) ansagen an:"));
-        LinearLayout days = new LinearLayout(this);
-        days.setOrientation(LinearLayout.HORIZONTAL);
-        String md = prefs.middayDays();
-        for (int i = 0; i < 7; i++) {
-            CheckBox cb = new CheckBox(this);
-            cb.setText(DAY_LABELS[i]);
-            cb.setChecked(md.indexOf(Character.forDigit(DAY_VALUES[i], 10)) >= 0);
-            dayBoxes[i] = cb;
-            days.addView(cb, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        }
-        HorizontalWrap.wrap(root, days);
+        body.addView(ui.section("Wecker"), ui.top(8));
+        list = ui.col();
+        body.addView(list, ui.fill());
 
-        root.addView(button("Speichern", v -> {
-            saveAll();
-            toast("Gespeichert");
-            refresh();
-        }));
+        ImageButton fab = new ImageButton(this);
+        fab.setImageResource(R.drawable.i_add);
+        fab.setImageTintList(android.content.res.ColorStateList.valueOf(ui.p.onAccent));
+        fab.setBackground(ui.ripple(ui.shape(ui.p.accent, 20), 20));
+        fab.setElevation(ui.dp(6));
+        fab.setContentDescription("Neuer Wecker");
+        fab.setOnClickListener(v -> newAlarm());
+        FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(ui.dp(64), ui.dp(64), Gravity.BOTTOM | Gravity.END);
+        fl.rightMargin = ui.dp(20);
+        fl.bottomMargin = ui.dp(28);
+        frame.addView(fab, fl);
 
-        root.addView(header("Protokoll"));
-        log = text("", 12, false);
-        log.setTypeface(Typeface.MONOSPACE);
-        root.addView(log);
+        setContentView(frame);
 
-        showSavedSelections();
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
@@ -138,233 +93,294 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putInt("expanded", expandedId);
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
-        refresh();
+        Scheduler.reschedule(this);
+        renderNext();
+        renderList();
+        syncInBackground(true);
     }
 
-    private void refresh() {
-        status.setText(Scheduler.reschedule(this));
-        log.setText(prefs.log());
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        batteryButton.setVisibility(pm.isIgnoringBatteryOptimizations(getPackageName()) ? View.GONE : View.VISIBLE);
-        hueState.setText(prefs.hueUser().isEmpty() ? "Noch nicht gekoppelt." : "Gekoppelt ✓");
-        automationState.setText(prefs.hueSync());
-        // Bei der Bridge nachsehen, ob die Automation richtig steht (im Hintergrund, braucht Netzwerk)
-        new Thread(() -> {
-            BridgeSync.sync(this, true);
-            runOnUiThread(() -> {
-                automationState.setText(prefs.hueSync());
-                log.setText(prefs.log());
-            });
-        }, "sonnenwecker-sync").start();
-    }
+    // ---------- Nächstes Wecken ----------
 
-    private void testSunrise() {
-        saveAll();
-        background("Stelle die Hue-Automation für den Test …", () -> {
-            String result = BridgeSync.test(this);
-            runOnUiThread(() -> {
-                automationState.setText(prefs.hueSync());
-                log.setText(prefs.log());
-                toast(result);
-            });
-        });
-    }
+    private void renderNext() {
+        nextCard.removeAllViews();
+        long now = System.currentTimeMillis();
+        AlarmStore.Next next = store.next(now);
 
-    private void showSavedSelections() {
-        if (!prefs.castName().isEmpty()) {
-            speakerSpinner.setAdapter(adapter(java.util.Collections.singletonList(prefs.castName())));
-        }
-    }
+        LinearLayout top = ui.row();
+        TextView label = ui.medium("Nächstes Wecken", 14, ui.p.muted);
+        Ui.heading(label);
+        top.addView(label, ui.weight());
+        top.addView(statusChip());
+        nextCard.addView(top, ui.fill());
 
-    private void saveAll() {
-        SharedPreferences.Editor e = prefs.edit();
-        e.putString("hueIp", ipEdit.getText().toString().trim());
-        e.putString("name", nameEdit.getText().toString().trim());
-        e.putInt("volume", parseInt(volumeEdit, 35, 1, 100));
-        String radio = radioEdit.getText().toString().trim();
-        e.putString("radioUrl", radio.isEmpty() ? Prefs.DEFAULT_RADIO : radio);
-        try {
-            e.putLong("lat", Double.doubleToLongBits(Double.parseDouble(latEdit.getText().toString().trim())));
-            e.putLong("lon", Double.doubleToLongBits(Double.parseDouble(lonEdit.getText().toString().trim())));
-        } catch (NumberFormatException ignored) {
-            toast("Ort ungültig – alter Wert bleibt");
-        }
-        StringBuilder md = new StringBuilder();
-        for (int i = 0; i < 7; i++) if (dayBoxes[i].isChecked()) md.append(DAY_VALUES[i]);
-        e.putString("middayDays", md.toString());
-
-        int si = speakerSpinner.getSelectedItemPosition();
-        if (!speakers.isEmpty() && si >= 0 && si < speakers.size()) {
-            CastDiscovery.Device d = speakers.get(si);
-            e.putString("castName", d.name).putString("castHost", d.host).putInt("castPort", d.port);
-        }
-        e.apply();
-    }
-
-    // ---------- Aktionen ----------
-
-    private void findBridge() {
-        background("Suche Bridge …", () -> {
-            String ip = HueClient.discover();
-            runOnUiThread(() -> {
-                if (ip == null) {
-                    toast("Keine Bridge gefunden – IP bitte aus der Hue-App abschreiben (Einstellungen → Bridges)");
-                } else {
-                    ipEdit.setText(ip);
-                    saveAll();
-                    toast("Bridge gefunden: " + ip);
-                }
-            });
-        });
-    }
-
-    private void pairBridge() {
-        saveAll();
-        String ip = prefs.hueIp();
-        if (ip.isEmpty()) {
-            toast("Bitte zuerst die Bridge suchen oder die IP eintragen");
+        if (next == null) {
+            nextCard.addView(ui.medium("Kein Wecker aktiv", 22, ui.p.text), ui.top(4));
+            nextCard.addView(ui.text("Tippe auf +, um einen Wecker anzulegen.", 13, ui.p.muted), ui.top(2));
             return;
         }
-        background("Kopple …", () -> {
-            String user = HueClient.pair(ip);
-            prefs.edit().putString("hueUser", user).apply();
-            runOnUiThread(() -> {
-                toast("Gekoppelt ✓");
-                refresh();
-            });
-        });
+        String hm = new SimpleDateFormat("HH:mm", Locale.GERMANY).format(new Date(next.time));
+        TextView when = ui.medium(Scheduler.dayText(next.time, now) + " · " + hm, 22, ui.p.text);
+        nextCard.addView(when, ui.top(4));
+        String detail;
+        if (prefs.fadeMsKnown() > 0 && prefs.hueOk()) {
+            String start = new SimpleDateFormat("HH:mm", Locale.GERMANY).format(new Date(next.time - prefs.fadeMsKnown()));
+            detail = "Sonnenaufgang ab " + start + " · Begrüßung und Radio um " + hm;
+        } else {
+            detail = "Begrüßung und Radio um " + hm;
+        }
+        nextCard.addView(ui.text(detail, 13, ui.p.muted), ui.top(2));
     }
 
-    private void findSpeakers() {
-        background("Suche Lautsprecher (ca. 8 Sek.) …", () -> {
-            List<CastDiscovery.Device> d = CastDiscovery.discover(this, 8000, null);
-            runOnUiThread(() -> {
-                speakers = d;
-                List<String> names = new ArrayList<>();
-                int sel = 0;
-                for (int i = 0; i < d.size(); i++) {
-                    names.add(d.get(i).name);
-                    if (d.get(i).name.equals(prefs.castName()) || d.get(i).name.toLowerCase().contains("jbl")) sel = i;
-                }
-                speakerSpinner.setAdapter(adapter(names));
-                if (!names.isEmpty()) speakerSpinner.setSelection(sel);
-                toast(d.isEmpty() ? "Kein Lautsprecher gefunden – ist das Handy im selben WLAN?"
-                        : d.size() + " gefunden – bitte den JBL auswählen und speichern");
-            });
-        });
+    private View statusChip() {
+        boolean ok = StatusActivity.quickOk(this);
+        LinearLayout chip = ui.row();
+        chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+        chip.setMinimumHeight(ui.dp(32));
+        int bg = ok ? ui.p.okBg : ui.p.warnBg;
+        int fg = ok ? ui.p.ok : ui.p.warn;
+        chip.setBackground(ui.ripple(ui.shape(bg, 16), 16));
+        chip.addView(ui.icon(ok ? R.drawable.i_check : R.drawable.i_alert, fg, 16));
+        TextView t = ui.medium(ok ? "Alles bereit" : "Bitte prüfen", 13, fg);
+        LinearLayout.LayoutParams l = ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        l.leftMargin = ui.dp(6);
+        chip.addView(t, l);
+        chip.setClickable(true);
+        chip.setFocusable(true);
+        chip.setContentDescription((ok ? "Alles bereit" : "Bitte prüfen") + ", Status anzeigen");
+        chip.setOnClickListener(v -> startActivity(new Intent(this, StatusActivity.class)));
+        return chip;
     }
 
-    private void startTest(String action) {
-        startForegroundService(new android.content.Intent(this, WakeService.class).setAction(action));
-        toast("Test läuft – Ergebnis erscheint unten im Protokoll");
-        log.postDelayed(() -> log.setText(prefs.log()), 15000);
-        log.postDelayed(() -> log.setText(prefs.log()), 45000);
-    }
+    // ---------- Wecker-Liste ----------
 
-    private void askBatteryExemption() {
-        Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()));
-        startActivity(i);
-    }
-
-    // ---------- Hilfsfunktionen ----------
-
-    interface Job { void run() throws Exception; }
-
-    private void background(String msg, Job job) {
-        toast(msg);
-        new Thread(() -> {
-            try {
-                job.run();
-            } catch (Exception e) {
-                runOnUiThread(() -> toast(e.getMessage() != null ? e.getMessage() : e.toString()));
-            }
-        }).start();
-    }
-
-    private ArrayAdapter<String> adapter(List<String> items) {
-        ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
-        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        return a;
-    }
-
-    private int parseInt(EditText e, int def, int min, int max) {
-        try {
-            return Math.max(min, Math.min(max, Integer.parseInt(e.getText().toString().trim())));
-        } catch (NumberFormatException ex) {
-            return def;
+    private void renderList() {
+        list.removeAllViews();
+        List<Alarm> alarms = store.all();
+        if (alarms.isEmpty()) {
+            TextView empty = ui.text("Noch kein Wecker. Tippe unten rechts auf +.", 15, ui.p.muted);
+            empty.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
+            list.addView(empty);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Alarm a : alarms) {
+            View card = a.id == expandedId ? expandedCard(a, now) : collapsedCard(a, now);
+            LinearLayout.LayoutParams l = ui.fill();
+            l.bottomMargin = ui.dp(12);
+            list.addView(card, l);
         }
     }
 
-    private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
+    private View collapsedCard(Alarm a, long now) {
+        LinearLayout card = ui.card(ui.p.surface, 24);
+        card.setPadding(ui.dp(20), ui.dp(8), ui.dp(12), ui.dp(4));
+        card.setBackground(ui.ripple(ui.shape(ui.p.surface, 24), 24));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(v -> expand(a.id));
+
+        LinearLayout r1 = ui.row();
+        TextView time = ui.light(a.time(), 56, a.enabled ? ui.p.text : ui.p.outline);
+        time.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        r1.addView(time, ui.weight());
+        r1.addView(toggleFor(a));
+        card.addView(r1, ui.fill());
+
+        LinearLayout r2 = ui.row();
+        String days = a.daysText(now) + (a.label.isEmpty() ? "" : " · " + a.label);
+        TextView d = ui.text(days, 15, a.enabled ? ui.p.text2 : ui.p.outline);
+        d.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        r2.addView(d, ui.weight());
+        ImageButton more = ui.iconButton(R.drawable.i_expand, "Wecker " + a.time() + " bearbeiten", ui.p.text2);
+        more.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        more.setOnClickListener(v -> expand(a.id));
+        r2.addView(more);
+        card.addView(r2, ui.fill());
+
+        card.setContentDescription("Wecker " + a.time() + ", " + a.daysSpoken()
+                + (a.label.isEmpty() ? "" : ", " + a.label) + (a.enabled ? ", an" : ", aus"));
+        return card;
     }
 
-    private TextView text(String s, int sp, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, dp(6), 0, dp(6));
-        return t;
+    private View expandedCard(Alarm a, long now) {
+        LinearLayout card = ui.card(ui.p.surfaceHigh, 24);
+        card.setPadding(ui.dp(20), ui.dp(8), ui.dp(12), ui.dp(8));
+
+        // Uhrzeit + Schalter
+        LinearLayout r1 = ui.row();
+        TextView time = ui.light(a.time(), 56, ui.p.onTonal);
+        time.setBackground(ui.ripple(null, 12));
+        time.setClickable(true);
+        time.setFocusable(true);
+        time.setContentDescription("Uhrzeit ändern, aktuell " + a.time());
+        time.setOnClickListener(v -> pickTime(a));
+        r1.addView(time, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        r1.addView(new View(this), ui.weight());
+        r1.addView(toggleFor(a));
+        card.addView(r1, ui.fill());
+
+        // Wochentage
+        TextView rep = ui.text("Wiederholen", 14, ui.p.muted);
+        card.addView(rep, ui.top(8));
+        LinearLayout days = ui.row();
+        for (int i = 0; i < 7; i++) {
+            final int idx = i;
+            CheckBox c = ui.dayCircle(Alarm.SHORT[i], Alarm.LONG[i]);
+            c.setChecked(a.hasDay(i));
+            c.setOnCheckedChangeListener((b, on) -> {
+                Alarm cur = store.get(a.id);
+                if (cur == null) return;
+                cur.setDay(idx, on);
+                cur.enabled = true;
+                store.update(cur);
+                changed(cur, false);
+            });
+            days.addView(c);
+            if (i < 6) days.addView(new View(this), ui.weight());
+        }
+        LinearLayout.LayoutParams dl = ui.top(8);
+        dl.rightMargin = ui.dp(8);
+        card.addView(days, dl);
+
+        // Bezeichnung
+        LinearLayout label = ui.iconText(R.drawable.i_label,
+                a.label.isEmpty() ? "Bezeichnung hinzufügen" : a.label, a.label.isEmpty() ? ui.p.text2 : ui.p.text);
+        label.setOnClickListener(v -> editLabel(a));
+        card.addView(label, ui.top(10));
+
+        // Hinweis auf den Ablauf
+        LinearLayout info = ui.card(ui.p.surface, 14);
+        info.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(6));
+        String ablauf = "Löst den Ablauf aus: Sonnenaufgang, Begrüßung, Radio"
+                + (prefs.backupEnabled() ? " und Backup-Vibration." : ".");
+        info.addView(ui.text(ablauf, 13, ui.p.text2));
+        TextView link = ui.medium("Ablauf anpassen", 13, ui.p.onTonal);
+        link.setPadding(0, ui.dp(10), ui.dp(12), ui.dp(10));
+        link.setBackground(ui.ripple(null, 8));
+        link.setClickable(true);
+        link.setFocusable(true);
+        link.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        info.addView(link);
+        LinearLayout.LayoutParams il = ui.top(6);
+        il.rightMargin = ui.dp(8);
+        card.addView(info, il);
+
+        // Löschen + Einklappen
+        LinearLayout r4 = ui.row();
+        LinearLayout del = ui.iconText(R.drawable.i_delete, "Löschen", ui.p.text2);
+        del.setContentDescription("Wecker " + a.time() + " löschen");
+        del.setOnClickListener(v -> {
+            store.delete(a.id);
+            expandedId = -1;
+            Toast.makeText(this, "Wecker " + a.time() + " gelöscht", Toast.LENGTH_SHORT).show();
+            afterChange();
+            renderList();
+        });
+        r4.addView(del);
+        r4.addView(new View(this), ui.weight());
+        ImageButton less = ui.iconButton(R.drawable.i_collapse, "Einklappen", ui.p.text2);
+        less.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        less.setOnClickListener(v -> expand(-1));
+        r4.addView(less);
+        card.addView(r4, ui.top(4));
+        return card;
     }
 
-    private TextView header(String s) {
-        TextView t = text(s, 20, true);
-        t.setPadding(0, dp(24), 0, dp(4));
-        return t;
+    private Switch toggleFor(Alarm a) {
+        Switch s = ui.toggle();
+        s.setChecked(a.enabled);
+        s.setContentDescription("Wecker " + a.time() + ", " + a.daysSpoken());
+        s.setOnCheckedChangeListener((b, on) -> {
+            Alarm cur = store.get(a.id);
+            if (cur == null) return;
+            cur.enabled = on;
+            store.update(cur);
+            changed(cur, true);
+        });
+        return s;
     }
 
-    private TextView label(String s) {
-        TextView t = text(s, 14, false);
-        t.setPadding(0, dp(10), 0, 0);
-        return t;
+    private void expand(int id) {
+        expandedId = id;
+        renderList();
     }
 
-    private TextView hint(String s) {
-        TextView t = text(s, 13, false);
-        t.setAlpha(0.7f);
-        return t;
+    /** Nach jeder Änderung: neu planen, Hinweis „Wecker in …“, Anzeige aktualisieren. */
+    private void changed(Alarm a, boolean rerender) {
+        afterChange();
+        if (a.enabled) {
+            long now = System.currentTimeMillis();
+            Toast.makeText(this, Scheduler.untilText(a.nextAfter(now), now), Toast.LENGTH_SHORT).show();
+        }
+        // Bei geänderten Wochentagen die Liste nicht neu bauen, damit der TalkBack-Fokus bleibt
+        if (rerender) renderList();
     }
 
-    private EditText edit(String hint, String value, int type) {
+    private void afterChange() {
+        Scheduler.reschedule(this);
+        renderNext();
+        syncInBackground(false);
+    }
+
+    private void pickTime(Alarm a) {
+        new TimePickerDialog(this, (view, h, m) -> {
+            Alarm cur = store.get(a.id);
+            if (cur == null) return;
+            cur.hour = h;
+            cur.minute = m;
+            cur.enabled = true;
+            store.update(cur);
+            changed(cur, true);
+        }, a.hour, a.minute, true).show();
+    }
+
+    private void newAlarm() {
+        Calendar c = Calendar.getInstance();
+        new TimePickerDialog(this, (view, h, m) -> {
+            Alarm a = store.add(h, m);
+            expandedId = a.id;
+            changed(a, true);
+        }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show();
+    }
+
+    private void editLabel(Alarm a) {
         EditText e = new EditText(this);
-        e.setHint(hint);
-        e.setText(value);
-        e.setInputType(type);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         e.setSingleLine(true);
-        return e;
+        e.setText(a.label);
+        e.setHint("z. B. Arbeit");
+        e.setSelection(e.getText().length());
+        FrameLayout box = new FrameLayout(this);
+        box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        box.addView(e);
+        new AlertDialog.Builder(this)
+                .setTitle("Bezeichnung")
+                .setView(box)
+                .setPositiveButton("Fertig", (d, w) -> {
+                    Alarm cur = store.get(a.id);
+                    if (cur == null) return;
+                    cur.label = e.getText().toString().trim();
+                    store.update(cur);
+                    renderList();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
     }
 
-    private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
-    }
-
-    private void toast(String s) {
-        Toast.makeText(this, s, Toast.LENGTH_LONG).show();
-    }
-
-    /** Sieben Wochentage passen nicht in eine Zeile – auf zwei Zeilen verteilen. */
-    static final class HorizontalWrap {
-        static void wrap(LinearLayout parent, LinearLayout row) {
-            LinearLayout second = new LinearLayout(parent.getContext());
-            second.setOrientation(LinearLayout.HORIZONTAL);
-            List<View> moved = new ArrayList<>();
-            for (int i = 4; i < row.getChildCount(); i++) moved.add(row.getChildAt(i));
-            for (View v : moved) {
-                row.removeView(v);
-                second.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            }
-            // Platzhalter, damit beide Zeilen gleich breite Spalten haben
-            View spacer = new View(parent.getContext());
-            second.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
-            parent.addView(row);
-            parent.addView(second);
-        }
+    private void syncInBackground(boolean force) {
+        new Thread(() -> {
+            BridgeSync.sync(this, force);
+            runOnUiThread(() -> {
+                if (!isFinishing()) renderNext();
+            });
+        }, "sonnenwecker-sync").start();
     }
 }

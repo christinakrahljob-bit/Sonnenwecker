@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.DarkActionBar" />
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:colorAccent">#B26A00</item>
+    </style>
+    <!-- Weck-Bildschirm: immer dunkel, damit er im Schlafzimmer nicht blendet -->
+    <style name="WakeTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/wake_bg</item>
+        <item name="android:statusBarColor">@color/wake_bg</item>
+        <item name="android:navigationBarColor">@color/wake_bg</item>
+        <item name="android:colorAccent">#FFB547</item>
+    </style>
 </resources>

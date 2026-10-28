@@ -1,21 +1,35 @@
 # Sonnenwecker
 
-*Stand: 28.10.2026, 08:00 Uhr*
+*Stand: 28.10.2026, 09:11 Uhr*
 
-Android-App, die deinen normalen Handywecker erkennt und dazu:
+Android-Wecker-App. Jeder Wecker löst denselben Ablauf aus:
 
-- die Hue-Aufwachen-Automation **„Sonnenwecker“** auf deine Weckzeit stellt – die Hue Bridge lässt die Iris dann einen Sonnenaufgang simulieren, sodass es zur Weckzeit hell ist
-- **zur Weckzeit** auf dem JBL Link begrüßt: „Guten Morgen, Christina! Es ist 6 Uhr 30. Heute wird es bis zu 12 Grad und bewölkt.“
-- **montags und mittwochs** zusätzlich das Wetter zwischen 12 und 14 Uhr ansagt
-- danach **SR3** spielt
+- **Sonnenaufgang:** Die App stellt die Hue-Aufwachen-Automation **„Sonnenwecker“** auf deine Weckzeit. Die Hue Bridge lässt die Iris dann einen Sonnenaufgang simulieren, sodass es zur Weckzeit hell ist.
+- **Begrüßung:** Zur Weckzeit sagt der JBL Link: „Guten Morgen, Christina! Es ist 6 Uhr 45. Heute wird es bis zu 12 Grad und bewölkt.“ An den gewählten Tagen (z. B. Mo und Mi) folgt das Wetter zwischen 12 und 14 Uhr.
+- **Radio:** Danach läuft SR3.
+- **Backup:** Tippst du nicht innerhalb von 5 Minuten auf „Ich bin wach“, vibriert das Handy.
 
-Du stellst nur den Wecker in der Uhr-App. Alles andere passiert automatisch.
+## Wecker
 
-## Voraussetzungen
+Wie in der Uhr-App: Mit **+** legst du einen Wecker an, wählst die Uhrzeit und die Wochentage und schaltest ihn ein oder aus. Ohne Wochentage klingelt ein Wecker einmal und schaltet sich danach aus. Für andere Uhrzeiten legst du einfach einen weiteren Wecker an.
 
-- Handy, Hue Bridge und JBL Link im selben WLAN
-- Für die Begrüßung ist das Handy morgens zu Hause und im WLAN
-- Deutsche Stimme für die Sprachausgabe ist installiert (Android-Einstellungen → Sprachausgabe)
+Den Wecker in der Uhr-App brauchst du nicht mehr.
+
+## Einrichten
+
+1. **Hue-App:** Unter Automationen → Aufwachen eine Automation mit dem Namen **„Sonnenwecker“** anlegen (Iris, Stil Sonnenaufgang). Uhrzeit und Tage stellt die Sonnenwecker-App.
+2. **Sonnenwecker → Einstellungen:** Bridge koppeln, Lautsprecher wählen, Ort fürs Wetter festlegen.
+3. **Sonnenwecker → Status und Einrichtung:** zeigt, ob alles bereit ist, und hilft bei fehlenden Berechtigungen.
+
+Änderungen werden sofort gespeichert.
+
+## Gut zu wissen
+
+- **Weck-Bildschirm:** erscheint zur Weckzeit auch auf dem Sperrbildschirm – mit Wetter, „Radio aus“ und „Ich bin wach“. Er ist immer dunkel, damit er nicht blendet.
+- **Neustart in der Nacht:** Die Wecker funktionieren auch nach einem Neustart, bevor das Handy entsperrt wurde.
+- **Dauer des Sonnenaufgangs:** in den Einstellungen wählbar (10, 15, 20 oder 30 Minuten); die App überträgt sie in die Hue-Automation.
+- **Backup-Vibration:** läuft höchstens 30 Minuten.
+- **Protokoll:** In den Einstellungen unter „Hilfe“ steht, was die App wann gemacht hat.
 
 ## App installieren
 
@@ -23,23 +37,3 @@ Auf dem Handy herunterladen und öffnen:
 https://github.com/christinakrahljob-bit/Sonnenwecker/releases/download/neueste-version/Sonnenwecker.apk
 
 Jede Änderung am Code erzeugt automatisch eine neue Version, die sich über die alte installiert.
-
-## Einrichten
-
-1. **Hue-App:** Unter Automationen → Aufwachen eine Automation mit dem Namen **„Sonnenwecker“** anlegen: Iris, Stil Sonnenaufgang, Dauer nach Wunsch. Uhrzeit und Tage sind egal – die stellt die Sonnenwecker-App.
-2. **Sonnenwecker-App:** Akku-Optimierung ausschalten (Knopf ganz oben).
-3. **Bridge:** „Bridge automatisch suchen“ → runden Knopf auf der Bridge drücken → „Mit Bridge koppeln“. Darunter erscheint, auf wann die Automation gestellt ist.
-4. **Lautsprecher:** „Lautsprecher im WLAN suchen“ → JBL auswählen → **Speichern**.
-5. Mit „Sonnenaufgang testen“ und „Begrüßung + Radio jetzt testen“ prüfen, ob alles klappt.
-
-Ganz unten in der App steht ein Protokoll, falls etwas nicht klappt.
-
-## Gut zu wissen
-
-- **Wann es hell wird:** Die Uhrzeit der Hue-Automation ist die Weckzeit. Der Sonnenaufgang beginnt um die in der Hue-App eingestellte Dauer früher.
-- **Ohne Wecker:** Ist kein Wecker gestellt, schaltet die App die Automation aus.
-- **Erinnerungen anderer Apps** (z. B. TickTick) werden ignoriert – nur Wecker der Uhr-App zählen.
-- **Schlummern:** Wird der Wecker innerhalb einer Stunde nach der Begrüßung erneut gestellt (Schlummern), gibt es keine zweite Begrüßung und keinen zweiten Sonnenaufgang.
-- **Test:** Der Test stellt die Automation so, dass der Sonnenaufgang in 1–2 Minuten beginnt, und stellt sie danach automatisch auf deinen Wecker zurück.
-- **Wetter:** kommt von Open-Meteo (kostenlos, ohne Konto). Ort in der App einstellbar.
-- **Radio:** Die SR3-Adresse ist in der App änderbar, falls der Sender seine Stream-Adresse ändert.

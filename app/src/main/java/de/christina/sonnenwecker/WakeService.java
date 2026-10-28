@@ -1,8 +1,6 @@
 package de.christina.sonnenwecker;
 
 import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -15,13 +13,12 @@ import android.os.PowerManager;
 import java.io.File;
 import java.net.Inet6Address;
 import java.net.InetAddress;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Führt die Begrüßung im Hintergrund aus. (Den Sonnenaufgang macht die Hue-Bridge selbst.) */
+/** Begrüßung und Radio auf dem Lautsprecher. (Den Sonnenaufgang macht die Hue-Bridge selbst.) */
 public class WakeService extends Service {
+    public static final String ACTION_WAKE = "de.christina.sonnenwecker.GREET";
     public static final String ACTION_TEST_WAKE = "de.christina.sonnenwecker.TEST_WAKE";
-    private static final String CHANNEL = "sonnenwecker";
 
     private final AtomicInteger running = new AtomicInteger();
 
@@ -41,10 +38,9 @@ public class WakeService extends Service {
     }
 
     private void startInForeground() {
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Sonnenwecker", NotificationManager.IMPORTANCE_LOW));
-        Notification n = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+        Ringing.ensureChannels(this);
+        Notification n = new Notification.Builder(this, Ringing.CH_SERVICE)
+                .setSmallIcon(R.drawable.i_sunrise)
                 .setContentTitle("Sonnenwecker")
                 .setContentText("Guten Morgen wird vorbereitet …")
                 .build();
@@ -66,8 +62,9 @@ public class WakeService extends Service {
                 "sonnenwecker:wifi");
         wifiLock.acquire();
         try {
-            if (Scheduler.ACTION_WAKE.equals(action)) {
-                p.setLong("lastWakeTarget", target);
+            if (ACTION_WAKE.equals(action)) {
+                if (p.greetStartedFor() == target) return; // läuft schon
+                p.setLong("greetStartedFor", target);
                 greet(p, target, false);
             } else if (ACTION_TEST_WAKE.equals(action)) {
                 greet(p, System.currentTimeMillis(), true);
@@ -76,9 +73,9 @@ public class WakeService extends Service {
             p.log("Fehler: " + e.getMessage());
         } finally {
             try {
-                if (Scheduler.ACTION_WAKE.equals(action)) {
+                if (ACTION_WAKE.equals(action)) {
                     // Nächsten Wecker planen und die Hue-Automation darauf umstellen
-                    p.log(Scheduler.reschedule(this).replace('\n', ' '));
+                    p.log(Scheduler.reschedule(this));
                     BridgeSync.sync(this, false);
                 }
             } finally {
@@ -93,7 +90,7 @@ public class WakeService extends Service {
     }
 
     private void greet(Prefs p, long wakeTime, boolean test) throws Exception {
-        // 1. Wetter holen und Text bauen
+        // 1. Wetter holen, Text bauen, Anzeige für den Weck-Bildschirm speichern
         String forecast = null;
         for (int attempt = 0; attempt < 3 && forecast == null; attempt++) {
             try {
@@ -102,50 +99,61 @@ public class WakeService extends Service {
                 Thread.sleep(3000);
             }
         }
-        String text = Weather.greeting(p.name(), forecast, wakeTime, p.middayDays());
+        Weather.Day day = Weather.evaluate(forecast, wakeTime, p.middayDays());
+        String[] lines = Weather.display(day);
+        p.edit().putString("weatherToday", lines[0]).putString("weatherMidday", lines[1])
+                .putString("weatherMiddayRain", lines[2]).putLong("weatherFor", wakeTime)
+                .putString("radioStatus", "startet").apply();
+        String text = Weather.greeting(p.name(), day, wakeTime);
         p.log("Begrüßung: " + text);
 
-        // 2. Sprachdatei erzeugen
-        File wav = new File(getCacheDir(), "gruss.wav");
-        Tts.synthesize(this, text, wav);
-        long wavMs = Tts.wavDurationMs(wav);
+        // 2. Sprachdatei erzeugen – klappt das nicht, läuft wenigstens das Radio
+        File wav = new File(Prefs.cacheDir(this), "gruss.wav");
+        boolean haveGreeting;
+        try {
+            Tts.synthesize(this, text, wav);
+            haveGreeting = true;
+        } catch (Exception e) {
+            haveGreeting = false;
+            p.log("Begrüßung übersprungen: " + e.getMessage());
+        }
+        long wavMs = haveGreeting ? Tts.wavDurationMs(wav) : 0;
 
         // 3. Lautsprecher finden
-        String host = p.castHost();
-        int port = p.castPort();
-        if (!p.castName().isEmpty()) {
-            List<CastDiscovery.Device> found = CastDiscovery.discover(this, 8000, p.castName());
-            for (CastDiscovery.Device d : found) {
-                if (p.castName().equals(d.name)) {
-                    host = d.host;
-                    port = d.port;
-                    p.edit().putString("castHost", host).putInt("castPort", port).apply();
-                }
-            }
+        String[] hp = Speaker.resolve(this);
+        String host = hp[0];
+        int port = Integer.parseInt(hp[1]);
+        if (host.isEmpty()) {
+            p.setString("radioStatus", "Kein Lautsprecher eingerichtet");
+            throw new Exception("Kein Lautsprecher eingerichtet");
         }
-        if (host.isEmpty()) throw new Exception("Kein Lautsprecher eingerichtet");
 
         // 4. Verbinden, Lautstärke setzen, abspielen
         Exception last = null;
         for (int attempt = 0; attempt < 3; attempt++) {
-            try (CastClient cast = new CastClient(); MiniHttpServer server = new MiniHttpServer(wav, "audio/wav")) {
+            try (CastClient cast = new CastClient();
+                 MiniHttpServer server = haveGreeting ? new MiniHttpServer(wav, "audio/wav") : null) {
                 cast.connect(host, port);
                 cast.launchMediaReceiver();
                 cast.setVolume(p.volumePercent() / 100.0);
-                InetAddress me = cast.localAddress();
-                String ip = me instanceof Inet6Address ? "[" + me.getHostAddress().replaceAll("%.*", "") + "]" : me.getHostAddress();
-                String url = "http://" + ip + ":" + server.port() + "/gruss-" + System.currentTimeMillis() + ".wav";
 
                 if (!test) {
                     long wait = wakeTime - System.currentTimeMillis();
                     if (wait > 0) Thread.sleep(wait);
                 }
-                cast.load(url, "audio/wav", "BUFFERED", "Guten Morgen");
-                if (!cast.waitFinished(wavMs + 20000)) p.log("Ende der Begrüßung nicht erkannt – starte Radio trotzdem");
+                if (server != null) {
+                    InetAddress me = cast.localAddress();
+                    String ip = me instanceof Inet6Address ? "[" + me.getHostAddress().replaceAll("%.*", "") + "]" : me.getHostAddress();
+                    String url = "http://" + ip + ":" + server.port() + "/gruss-" + System.currentTimeMillis() + ".wav";
+                    cast.load(url, "audio/wav", "BUFFERED", "Guten Morgen");
+                    if (!cast.waitFinished(wavMs + 20000)) p.log("Ende der Begrüßung nicht erkannt – starte Radio trotzdem");
+                }
                 cast.load(p.radioUrl(), "audio/mpeg", "LIVE", p.radioTitle());
                 if (cast.waitPlaying(20000)) {
+                    p.setString("radioStatus", "läuft");
                     p.log("Radio läuft");
                 } else {
+                    p.setString("radioStatus", "startet nicht – Sender prüfen");
                     p.log("Radio hat nicht bestätigt, dass es spielt – Sender-Adresse prüfen");
                 }
                 return;
@@ -155,6 +163,7 @@ public class WakeService extends Service {
                 Thread.sleep(3000);
             }
         }
+        p.setString("radioStatus", "Lautsprecher nicht erreichbar");
         throw new Exception("Lautsprecher nicht erreichbar: " + (last != null ? last.getMessage() : "?"));
     }
 }

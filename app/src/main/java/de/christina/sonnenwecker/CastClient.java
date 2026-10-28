@@ -120,6 +120,26 @@ public class CastClient implements Closeable {
         send(transportId, NS_CONN, "{\"type\":\"CONNECT\"}");
     }
 
+    /** Beendet die laufende Wiedergabe (z. B. das Radio). Spielt nichts, passiert nichts. */
+    public void stopMediaApp() throws Exception {
+        send(RECEIVER, NS_RECEIVER, "{\"type\":\"GET_STATUS\",\"requestId\":" + (requestId++) + "}");
+        JSONObject st = waitFor(NS_RECEIVER, j -> "RECEIVER_STATUS".equals(j.optString("type")), 8000);
+        if (st == null) throw new IOException("Lautsprecher antwortet nicht");
+        JSONObject status = st.optJSONObject("status");
+        JSONArray apps = status != null ? status.optJSONArray("applications") : null;
+        if (apps == null) return;
+        for (int i = 0; i < apps.length(); i++) {
+            JSONObject a = apps.optJSONObject(i);
+            if (a == null || !DEFAULT_MEDIA_RECEIVER.equals(a.optString("appId"))) continue;
+            String session = a.optString("sessionId", "");
+            if (!session.isEmpty()) {
+                send(RECEIVER, NS_RECEIVER, "{\"type\":\"STOP\",\"requestId\":" + (requestId++)
+                        + ",\"sessionId\":\"" + session + "\"}");
+                Thread.sleep(500);
+            }
+        }
+    }
+
     static String findTransportId(JSONObject j) {
         if (!"RECEIVER_STATUS".equals(j.optString("type"))) return null;
         JSONObject status = j.optJSONObject("status");
