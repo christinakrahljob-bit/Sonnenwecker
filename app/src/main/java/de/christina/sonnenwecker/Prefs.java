@@ -47,6 +47,18 @@ public final class Prefs {
     /** Zuletzt gesehener Wecker der Uhr-App (falls eine fremde Erinnerung ihn gerade verdeckt). */
     public long clockTarget() { return sp.getLong("clockTarget", 0); }
 
+    // --- Hue-Automation ---
+    /** Auf diese Weckzeit soll die Hue-Automation gestellt sein; 0 = ausgeschaltet. */
+    public long lightTarget() { return sp.getLong("lightTarget", 0); }
+    /** Zuletzt erfolgreich auf der Bridge eingestellter Zustand ("on:<Zeit>", "off", "test" oder leer). */
+    public String syncedKey() { return sp.getString("syncedKey", ""); }
+    /** Bis dahin läuft ein Test – die Automation wird nicht verändert. */
+    public long testUntil() { return sp.getLong("testUntil", 0); }
+    /** Dauer des Sonnenaufgangs laut Hue-Automation (zuletzt gelesen). */
+    public long fadeMs() { return sp.getLong("fadeMs", 30 * 60_000L); }
+    /** Ergebnis des letzten Abgleichs, zur Anzeige. */
+    public String hueSync() { return sp.getString("hueSync", "Noch nicht mit der Hue-Automation abgeglichen."); }
+
     public SharedPreferences.Editor edit() { return sp.edit(); }
 
     public void setLong(String key, long v) { sp.edit().putLong(key, v).apply(); }

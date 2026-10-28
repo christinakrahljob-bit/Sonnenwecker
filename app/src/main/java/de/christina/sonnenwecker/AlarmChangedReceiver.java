@@ -8,7 +8,17 @@ import android.content.Intent;
 public class AlarmChangedReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context ctx, Intent intent) {
-        String status = Scheduler.reschedule(ctx);
-        new Prefs(ctx).log("Neu geplant: " + status.replace('\n', ' '));
+        // Nach Neustart oder Update auf jeden Fall bei der Bridge nachsehen, sonst nur bei Änderungen.
+        boolean force = !"android.app.action.NEXT_ALARM_CLOCK_CHANGED".equals(intent.getAction());
+        PendingResult pr = goAsync();
+        new Thread(() -> {
+            try {
+                String status = Scheduler.reschedule(ctx);
+                new Prefs(ctx).log("Neu geplant: " + status.replace('\n', ' '));
+                BridgeSync.sync(ctx, force);
+            } finally {
+                pr.finish();
+            }
+        }, "sonnenwecker-sync").start();
     }
 }

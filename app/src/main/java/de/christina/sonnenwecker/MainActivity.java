@@ -27,19 +27,18 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Einstellungsbildschirm: Bridge koppeln, Lampe und Lautsprecher wählen, testen. */
+/** Einstellungsbildschirm: Bridge koppeln, Hue-Automation prüfen, Lautsprecher wählen, testen. */
 public class MainActivity extends Activity {
     private static final String[] DAY_LABELS = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
     private static final int[] DAY_VALUES = {2, 3, 4, 5, 6, 7, 1}; // Calendar.DAY_OF_WEEK
 
     private Prefs prefs;
     private LinearLayout root;
-    private TextView status, log, hueState;
-    private EditText ipEdit, nameEdit, leadEdit, radioEdit, latEdit, lonEdit, volumeEdit;
-    private Spinner lightSpinner, speakerSpinner;
+    private TextView status, log, hueState, automationState;
+    private EditText ipEdit, nameEdit, radioEdit, latEdit, lonEdit, volumeEdit;
+    private Spinner speakerSpinner;
     private final CheckBox[] dayBoxes = new CheckBox[7];
     private Button batteryButton;
-    private List<HueClient.Light> lights = new ArrayList<>();
     private List<CastDiscovery.Device> speakers = new ArrayList<>();
 
     @Override
@@ -63,7 +62,7 @@ public class MainActivity extends Activity {
         root.addView(hint("Wichtig: Stelle deinen Wecker ganz normal in der Uhr-App. Die App erkennt ihn automatisch."));
 
         // --- Hue ---
-        root.addView(header("1. Hue-Lampe"));
+        root.addView(header("1. Hue-Sonnenaufgang"));
         ipEdit = edit("IP-Adresse der Bridge", prefs.hueIp(), InputType.TYPE_CLASS_TEXT);
         root.addView(ipEdit);
         root.addView(button("Bridge automatisch suchen", v -> findBridge()));
@@ -71,13 +70,14 @@ public class MainActivity extends Activity {
         root.addView(button("Mit Bridge koppeln", v -> pairBridge()));
         hueState = hint("");
         root.addView(hueState);
-        root.addView(button("Lampen laden", v -> loadLights()));
-        lightSpinner = new Spinner(this);
-        root.addView(lightSpinner);
-        root.addView(button("Sonnenaufgang testen (10 Minuten)", v -> {
-            saveAll();
-            startTest(WakeService.ACTION_TEST_SUNRISE);
-        }));
+        root.addView(hint("Lege in der Hue-App unter Automationen → Aufwachen eine Automation mit dem Namen „"
+                + BridgeSync.AUTOMATION_NAME + "“ an: Iris, Stil Sonnenaufgang, Dauer nach Wunsch. "
+                + "Uhrzeit und Wochentag stellt diese App automatisch passend zu deinem Wecker."));
+        automationState = text("", 15, true);
+        root.addView(automationState);
+        root.addView(button("Sonnenaufgang testen", v -> testSunrise()));
+        root.addView(hint("Der Test stellt die Automation so, dass der Sonnenaufgang in 1–2 Minuten beginnt. "
+                + "Danach stellt die App sie automatisch auf deinen Wecker zurück."));
 
         // --- Lautsprecher ---
         root.addView(header("2. Lautsprecher"));
@@ -97,9 +97,6 @@ public class MainActivity extends Activity {
         root.addView(label("Name in der Begrüßung"));
         nameEdit = edit("Name", prefs.name(), InputType.TYPE_CLASS_TEXT);
         root.addView(nameEdit);
-        root.addView(label("Sonnenaufgang beginnt so viele Minuten vor dem Wecker"));
-        leadEdit = edit("Minuten", String.valueOf(prefs.leadMinutes()), InputType.TYPE_CLASS_NUMBER);
-        root.addView(leadEdit);
         root.addView(label("Radio-Adresse (Stream)"));
         radioEdit = edit("https://…", prefs.radioUrl(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         root.addView(radioEdit);
@@ -152,12 +149,30 @@ public class MainActivity extends Activity {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         batteryButton.setVisibility(pm.isIgnoringBatteryOptimizations(getPackageName()) ? View.GONE : View.VISIBLE);
         hueState.setText(prefs.hueUser().isEmpty() ? "Noch nicht gekoppelt." : "Gekoppelt ✓");
+        automationState.setText(prefs.hueSync());
+        // Bei der Bridge nachsehen, ob die Automation richtig steht (im Hintergrund, braucht Netzwerk)
+        new Thread(() -> {
+            BridgeSync.sync(this, true);
+            runOnUiThread(() -> {
+                automationState.setText(prefs.hueSync());
+                log.setText(prefs.log());
+            });
+        }, "sonnenwecker-sync").start();
+    }
+
+    private void testSunrise() {
+        saveAll();
+        background("Stelle die Hue-Automation für den Test …", () -> {
+            String result = BridgeSync.test(this);
+            runOnUiThread(() -> {
+                automationState.setText(prefs.hueSync());
+                log.setText(prefs.log());
+                toast(result);
+            });
+        });
     }
 
     private void showSavedSelections() {
-        if (!prefs.lightName().isEmpty()) {
-            lightSpinner.setAdapter(adapter(java.util.Collections.singletonList(prefs.lightName())));
-        }
         if (!prefs.castName().isEmpty()) {
             speakerSpinner.setAdapter(adapter(java.util.Collections.singletonList(prefs.castName())));
         }
@@ -167,7 +182,6 @@ public class MainActivity extends Activity {
         SharedPreferences.Editor e = prefs.edit();
         e.putString("hueIp", ipEdit.getText().toString().trim());
         e.putString("name", nameEdit.getText().toString().trim());
-        e.putInt("lead", parseInt(leadEdit, 15, 1, 120));
         e.putInt("volume", parseInt(volumeEdit, 35, 1, 100));
         String radio = radioEdit.getText().toString().trim();
         e.putString("radioUrl", radio.isEmpty() ? Prefs.DEFAULT_RADIO : radio);
@@ -181,11 +195,6 @@ public class MainActivity extends Activity {
         for (int i = 0; i < 7; i++) if (dayBoxes[i].isChecked()) md.append(DAY_VALUES[i]);
         e.putString("middayDays", md.toString());
 
-        int li = lightSpinner.getSelectedItemPosition();
-        if (!lights.isEmpty() && li >= 0 && li < lights.size()) {
-            HueClient.Light l = lights.get(li);
-            e.putString("lightId", l.id).putString("lightIdV1", l.idV1).putString("lightName", l.name);
-        }
         int si = speakerSpinner.getSelectedItemPosition();
         if (!speakers.isEmpty() && si >= 0 && si < speakers.size()) {
             CastDiscovery.Device d = speakers.get(si);
@@ -224,30 +233,6 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 toast("Gekoppelt ✓");
                 refresh();
-                loadLights();
-            });
-        });
-    }
-
-    private void loadLights() {
-        if (prefs.hueUser().isEmpty()) {
-            toast("Bitte zuerst mit der Bridge koppeln");
-            return;
-        }
-        background("Lade Lampen …", () -> {
-            List<HueClient.Light> l = HueClient.lights(prefs.hueIp(), prefs.hueUser());
-            runOnUiThread(() -> {
-                lights = l;
-                List<String> names = new ArrayList<>();
-                int sel = 0;
-                for (int i = 0; i < l.size(); i++) {
-                    HueClient.Light x = l.get(i);
-                    names.add(x.name + (x.sunrise ? "  ☀ Sonnenaufgang" : ""));
-                    if (x.id.equals(prefs.lightId()) || (prefs.lightId().isEmpty() && x.name.toLowerCase().contains("iris"))) sel = i;
-                }
-                lightSpinner.setAdapter(adapter(names));
-                if (!names.isEmpty()) lightSpinner.setSelection(sel);
-                toast(l.size() + " Lampen gefunden – bitte die Iris auswählen und speichern");
             });
         });
     }

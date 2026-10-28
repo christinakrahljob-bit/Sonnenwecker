@@ -18,9 +18,8 @@ import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Führt Sonnenaufgang und Begrüßung im Hintergrund aus. */
+/** Führt die Begrüßung im Hintergrund aus. (Den Sonnenaufgang macht die Hue-Bridge selbst.) */
 public class WakeService extends Service {
-    public static final String ACTION_TEST_SUNRISE = "de.christina.sonnenwecker.TEST_SUNRISE";
     public static final String ACTION_TEST_WAKE = "de.christina.sonnenwecker.TEST_WAKE";
     private static final String CHANNEL = "sonnenwecker";
 
@@ -67,50 +66,30 @@ public class WakeService extends Service {
                 "sonnenwecker:wifi");
         wifiLock.acquire();
         try {
-            if (Scheduler.ACTION_SUNRISE.equals(action)) {
-                p.setLong("sunriseDoneFor", target);
-                sunrise(p, target - System.currentTimeMillis());
-            } else if (Scheduler.ACTION_WAKE.equals(action)) {
+            if (Scheduler.ACTION_WAKE.equals(action)) {
                 p.setLong("lastWakeTarget", target);
                 greet(p, target, false);
-            } else if (ACTION_TEST_SUNRISE.equals(action)) {
-                sunrise(p, 10 * 60_000L);
             } else if (ACTION_TEST_WAKE.equals(action)) {
                 greet(p, System.currentTimeMillis(), true);
             }
         } catch (Exception e) {
             p.log("Fehler: " + e.getMessage());
         } finally {
-            wifiLock.release();
-            if (wl.isHeld()) wl.release();
-            if (action != null && !action.startsWith("de.christina.sonnenwecker.TEST")) {
-                p.log(Scheduler.reschedule(this).replace('\n', ' '));
-            }
-            if (running.decrementAndGet() == 0) {
-                stopForeground(STOP_FOREGROUND_REMOVE);
-                stopSelf();
-            }
-        }
-    }
-
-    private void sunrise(Prefs p, long durationMs) throws Exception {
-        if (p.hueUser().isEmpty() || p.lightId().isEmpty()) {
-            p.log("Sonnenaufgang übersprungen: Hue ist noch nicht eingerichtet");
-            return;
-        }
-        Exception last = null;
-        for (int attempt = 0; attempt < 4; attempt++) {
             try {
-                String r = HueClient.startSunrise(p.hueIp(), p.hueUser(), p.lightId(), p.lightIdV1(), durationMs);
-                p.log(r);
-                return;
-            } catch (Exception e) {
-                last = e;
-                Thread.sleep(4000);
-                durationMs -= 4000;
+                if (Scheduler.ACTION_WAKE.equals(action)) {
+                    // Nächsten Wecker planen und die Hue-Automation darauf umstellen
+                    p.log(Scheduler.reschedule(this).replace('\n', ' '));
+                    BridgeSync.sync(this, false);
+                }
+            } finally {
+                wifiLock.release();
+                if (wl.isHeld()) wl.release();
+                if (running.decrementAndGet() == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    stopSelf();
+                }
             }
         }
-        throw new Exception("Sonnenaufgang fehlgeschlagen: " + (last != null ? last.getMessage() : "?"));
     }
 
     private void greet(Prefs p, long wakeTime, boolean test) throws Exception {
