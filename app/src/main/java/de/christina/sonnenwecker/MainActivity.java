@@ -241,7 +241,7 @@ public class MainActivity extends Activity {
                 cur.setDay(idx, on);
                 cur.enabled = true;
                 store.update(cur);
-                changed(cur, false);
+                changed(cur, false, false);
             });
             days.addView(c);
             if (i < 6) days.addView(new View(this), ui.weight());
@@ -303,7 +303,7 @@ public class MainActivity extends Activity {
             if (cur == null) return;
             cur.enabled = on;
             store.update(cur);
-            changed(cur, true);
+            changed(cur, true, true);
         });
         return s;
     }
@@ -314,9 +314,9 @@ public class MainActivity extends Activity {
     }
 
     /** Nach jeder Änderung: neu planen, Hinweis „Wecker in …“, Anzeige aktualisieren. */
-    private void changed(Alarm a, boolean rerender) {
+    private void changed(Alarm a, boolean rerender, boolean toast) {
         afterChange();
-        if (a.enabled) {
+        if (toast && a.enabled) {
             long now = System.currentTimeMillis();
             Toast.makeText(this, Scheduler.untilText(a.nextAfter(now), now), Toast.LENGTH_SHORT).show();
         }
@@ -338,7 +338,7 @@ public class MainActivity extends Activity {
             cur.minute = m;
             cur.enabled = true;
             store.update(cur);
-            changed(cur, true);
+            changed(cur, true, true);
         }, a.hour, a.minute, true).show();
     }
 
@@ -347,7 +347,7 @@ public class MainActivity extends Activity {
         new TimePickerDialog(this, (view, h, m) -> {
             Alarm a = store.add(h, m);
             expandedId = a.id;
-            changed(a, true);
+            changed(a, true, true);
         }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show();
     }
 
