@@ -55,19 +55,29 @@ public final class Scheduler {
 
         if (next == null || next.getTriggerTime() <= now + 5000) {
             p.setLong("nextTarget", 0);
+            p.setLong("clockTarget", 0);
             return "Kein Wecker gestellt.";
         }
         long target = next.getTriggerTime();
         String creator = creatorOf(ctx, next.getShowIntent());
+        String note = "";
 
         // Wecker einer anderen App (Erinnerung, Aufgabe, Routine …) → ignorieren und danach erneut nachsehen,
         // denn Android verrät immer nur den allerersten Wecker.
         if (creator != null && !CLOCK_APPS.contains(creator)) {
-            p.setLong("nextTarget", 0);
             set(am, exact, target + 30_000, pending(ctx, ACTION_RECHECK, target));
-            return "Kein Wecker der Uhr-App erkannt.\n"
-                    + "Ignoriert: " + f.format(new Date(target)) + " von " + creator
-                    + "\nDanach wird erneut nachgesehen.";
+            note = "\nIgnoriert: " + f.format(new Date(target)) + " von " + creator;
+            long remembered = p.clockTarget();
+            if (remembered > target) {
+                // Der zuletzt gesehene Wecker der Uhr-App liegt dahinter – an seinem Plan festhalten.
+                target = remembered;
+                creator = "Uhr-App, gemerkt";
+            } else {
+                p.setLong("nextTarget", 0);
+                return "Kein Wecker der Uhr-App erkannt." + note + "\nDanach wird erneut nachgesehen.";
+            }
+        } else {
+            p.setLong("clockTarget", target);
         }
 
         long last = p.lastWakeTarget();
@@ -90,7 +100,7 @@ public final class Scheduler {
         String s = "Nächster Wecker: " + f.format(new Date(target))
                 + " (" + (creator != null ? creator : "Absender unbekannt") + ")"
                 + "\nSonnenaufgang ab " + hm.format(new Date(sunriseAt))
-                + ", Begrüßung um " + hm.format(new Date(target));
+                + ", Begrüßung um " + hm.format(new Date(target)) + note;
         if (creator == null) s += "\n⚠ Android verrät nicht, welche App diesen Wecker gestellt hat.";
         if (!exact) s += "\n⚠ Genaue Wecker sind nicht erlaubt – Zeiten können sich verschieben.";
         return s;

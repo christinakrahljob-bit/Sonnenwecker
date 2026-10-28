@@ -81,23 +81,91 @@ public final class HueClient {
      */
     public static String startSunrise(String ip, String user, String id, String idV1, long durationMs) throws Exception {
         durationMs = Math.max(30000, durationMs);
+        StringBuilder report = new StringBuilder();
+        report.append("Lampe vorher: ").append(status(ip, user, id)).append(" | ");
+
+        // 1. Echter Hue-Sonnenaufgang
         try {
             String body = "{\"timed_effects\":{\"effect\":\"sunrise\",\"duration\":" + durationMs + "}}";
             String[] r = http("PUT", "https://" + ip + "/clip/v2/resource/light/" + id, body, user);
             JSONArray errors = new JSONObject(r[1]).optJSONArray("errors");
             if ("200".equals(r[0]) && (errors == null || errors.length() == 0)) {
-                return "Hue-Sonnenaufgang gestartet (" + durationMs / 60000 + " Min.)";
+                Thread.sleep(5000);
+                String after = status(ip, user, id);
+                if (after.contains("an,") || after.contains("Effekt sunrise")) {
+                    return report.append("Hue-Sonnenaufgang läuft (").append(durationMs / 60000)
+                            .append(" Min.) – ").append(after).toString();
+                }
+                report.append("Hue-Sonnenaufgang angenommen, aber Lampe reagiert nicht: ").append(after).append(" | ");
+            } else {
+                report.append("Bridge lehnt Sonnenaufgang ab: HTTP ").append(r[0]).append(' ')
+                        .append(shorten(r[1])).append(" | ");
             }
         } catch (Exception e) {
-            // weiter mit der Ersatzlösung
+            report.append("Sonnenaufgang-Fehler: ").append(e.getMessage()).append(" | ");
         }
-        if (idV1 == null || idV1.isEmpty()) throw new Exception("Lampe kann keinen Sonnenaufgang und hat keine v1-ID");
+
+        // 2. Ersatzlösung: langsam von tiefem Orange auf warmes Weiß hochdimmen
+        try {
+            http("PUT", "https://" + ip + "/clip/v2/resource/light/" + id,
+                    "{\"timed_effects\":{\"effect\":\"no_effect\"}}", user);
+        } catch (Exception ignored) {
+        }
+        if (idV1 == null || idV1.isEmpty()) throw new Exception(report + "keine v1-ID für die Ersatzlösung");
         String base = "http://" + ip + "/api/" + user + idV1 + "/state";
-        http("PUT", base, "{\"on\":true,\"bri\":1,\"xy\":[0.6,0.38],\"transitiontime\":0}", null);
+        String[] a = http("PUT", base, "{\"on\":true,\"bri\":1,\"xy\":[0.6,0.38],\"transitiontime\":0}", null);
         Thread.sleep(1500);
-        long tt = Math.min(65535, durationMs / 100);
-        http("PUT", base, "{\"on\":true,\"bri\":254,\"xy\":[0.46,0.41],\"transitiontime\":" + tt + "}", null);
-        return "Ersatz-Sonnenaufgang gestartet (Hochdimmen, " + durationMs / 60000 + " Min.)";
+        long tt = Math.min(65535, Math.max(10, (durationMs - 1500) / 100));
+        String[] b = http("PUT", base, "{\"on\":true,\"bri\":254,\"xy\":[0.46,0.41],\"transitiontime\":" + tt + "}", null);
+        Thread.sleep(3000);
+        report.append("Ersatz-Hochdimmen (").append(durationMs / 60000).append(" Min.): ")
+                .append(a[1].contains("error") ? "Fehler " + shorten(a[1]) : "ok").append(" / ")
+                .append(b[1].contains("error") ? "Fehler " + shorten(b[1]) : "ok")
+                .append(" – Lampe jetzt: ").append(status(ip, user, id));
+        return report.toString();
+    }
+
+    /** Kurzbeschreibung des Lampenzustands fürs Protokoll. */
+    public static String status(String ip, String user, String id) {
+        try {
+            String[] r = http("GET", "https://" + ip + "/clip/v2/resource/light/" + id, null, user);
+            JSONObject l = new JSONObject(r[1]).getJSONArray("data").getJSONObject(0);
+            StringBuilder s = new StringBuilder();
+            JSONObject on = l.optJSONObject("on");
+            s.append(on != null && "true".equals(on.optString("on")) ? "an, " : "aus, ");
+            JSONObject dim = l.optJSONObject("dimming");
+            if (dim != null) s.append("Helligkeit ").append(dim.optString("brightness", "?")).append("%, ");
+            JSONObject te = l.optJSONObject("timed_effects");
+            s.append("Effekt ").append(te != null ? te.optString("status", "?") : "?");
+            String reach = reachability(ip, user, l);
+            if (reach != null) s.append(", Funk: ").append(reach);
+            return s.toString();
+        } catch (Exception e) {
+            return "Zustand unbekannt (" + e.getMessage() + ")";
+        }
+    }
+
+    private static String reachability(String ip, String user, JSONObject light) {
+        try {
+            JSONObject owner = light.optJSONObject("owner");
+            if (owner == null) return null;
+            String deviceId = owner.optString("rid");
+            String[] r = http("GET", "https://" + ip + "/clip/v2/resource/zigbee_connectivity", null, user);
+            JSONArray data = new JSONObject(r[1]).getJSONArray("data");
+            for (int i = 0; i < data.length(); i++) {
+                JSONObject z = data.getJSONObject(i);
+                JSONObject o = z.optJSONObject("owner");
+                if (o != null && deviceId.equals(o.optString("rid"))) return z.optString("status", "?");
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static String shorten(String s) {
+        if (s == null) return "";
+        s = s.replace('\n', ' ');
+        return s.length() > 160 ? s.substring(0, 160) + "…" : s;
     }
 
     /** @return {HTTP-Status, Antworttext} */

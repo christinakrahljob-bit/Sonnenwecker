@@ -44,6 +44,8 @@ public final class Prefs {
     public long nextTarget() { return sp.getLong("nextTarget", 0); }
     public long lastWakeTarget() { return sp.getLong("lastWakeTarget", 0); }
     public long sunriseDoneFor() { return sp.getLong("sunriseDoneFor", 0); }
+    /** Zuletzt gesehener Wecker der Uhr-App (falls eine fremde Erinnerung ihn gerade verdeckt). */
+    public long clockTarget() { return sp.getLong("clockTarget", 0); }
 
     public SharedPreferences.Editor edit() { return sp.edit(); }
 
