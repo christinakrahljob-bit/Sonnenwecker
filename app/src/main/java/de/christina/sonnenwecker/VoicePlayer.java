@@ -11,7 +11,10 @@ import android.speech.tts.Voice;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -49,8 +52,9 @@ final class VoicePlayer {
     /** Zählt jede Probe hoch – Rückmeldungen älterer Proben werden ignoriert. */
     private int generation;
     private MediaPlayer media;
-    private File mediaFile;
     private boolean released;
+    /** So viele Hörproben von Online-Stimmen bleiben gespeichert – eine gehörte Probe kostet keine neue Anfrage. */
+    private static final int CACHE_FILES = 60;
 
     VoicePlayer(Context ctx, Listener listener) {
         this.app = ctx.getApplicationContext();
@@ -90,16 +94,19 @@ final class VoicePlayer {
         else e.waiting.add(cb);
     }
 
-    /** Spielt den Text mit der Stimme; läuft schon eine Probe, endet sie. */
-    void play(String spec, String text) {
+    /**
+     * Spielt den Text mit der Stimme; läuft schon eine Probe, endet sie.
+     * @param style Sprechweise für Gemini-Stimmen
+     */
+    void play(String spec, String style, String text) {
         stop();
         if (released) return;
         String s = spec == null ? "" : spec;
         int gen = ++generation;
         playing = s;
         if (listener != null) listener.onState(s, true);
-        if (VoiceSpec.isCloud(s)) {
-            playCloud(gen, s, text);
+        if (VoiceSpec.isOnline(s)) {
+            playOnline(gen, s, style == null ? "" : style, text);
             return;
         }
         String voiceName = VoiceSpec.engineVoice(s);
@@ -140,19 +147,22 @@ final class VoicePlayer {
         return null;
     }
 
-    private void playCloud(int gen, String spec, String text) {
-        String key = new Prefs(app).cloudKey();
-        if (key.isEmpty()) {
-            failed(gen, "Für Google Cloud fehlt der API-Schlüssel.");
+    private void playOnline(int gen, String spec, String style, String text) {
+        File f = cacheFile(spec, VoiceSpec.isGemini(spec) ? style : "", text);
+        if (f.length() > 44) {
+            f.setLastModified(System.currentTimeMillis());
+            startMedia(gen, f);
             return;
         }
         new Thread(() -> {
             try {
-                byte[] wav = CloudTts.synthesize(key, VoiceSpec.cloudVoice(spec), text);
-                File f = new File(app.getCacheDir(), "hoerprobe-" + gen + ".wav");
-                try (FileOutputStream o = new FileOutputStream(f)) {
+                byte[] wav = Tts.onlineWav(app, spec, style, text);
+                File tmp = new File(f.getPath() + ".tmp");
+                try (FileOutputStream o = new FileOutputStream(tmp)) {
                     o.write(wav);
                 }
+                if (!tmp.renameTo(f)) throw new Exception("Hörprobe konnte nicht gespeichert werden");
+                pruneCache(f.getParentFile());
                 main.post(() -> startMedia(gen, f));
             } catch (Exception e) {
                 main.post(() -> failed(gen, e.getMessage()));
@@ -160,14 +170,34 @@ final class VoicePlayer {
         }, "sonnenwecker-hoerprobe").start();
     }
 
-    private void startMedia(int gen, File f) {
-        if (gen != generation || released) {
-            f.delete();
-            return;
+    private File cacheFile(String spec, String style, String text) {
+        File dir = new File(app.getCacheDir(), "hoerproben");
+        dir.mkdirs();
+        return new File(dir, hash(spec + "\n" + style + "\n" + text) + ".wav");
+    }
+
+    static String hash(String s) {
+        try {
+            byte[] d = MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < 12; i++) b.append(String.format("%02x", d[i]));
+            return b.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(s.hashCode());
         }
+    }
+
+    private static void pruneCache(File dir) {
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".wav"));
+        if (files == null || files.length <= CACHE_FILES) return;
+        Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        for (int i = CACHE_FILES; i < files.length; i++) files[i].delete();
+    }
+
+    private void startMedia(int gen, File f) {
+        if (gen != generation || released) return;
         MediaPlayer m = new MediaPlayer();
         media = m;
-        mediaFile = f;
         try {
             m.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -270,10 +300,6 @@ final class VoicePlayer {
             } catch (Exception ignored) {
             }
             media = null;
-        }
-        if (mediaFile != null) {
-            mediaFile.delete();
-            mediaFile = null;
         }
     }
 

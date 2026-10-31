@@ -90,9 +90,12 @@ public final class Prefs {
     // --- Stimmen ---
     /** API-Schlüssel für die Premium-Stimmen von Google Cloud (bleibt nur auf dem Handy). */
     public String cloudKey() { return sp.getString("cloudKey", ""); }
-    /** Zuletzt gewählte Stimme – Vorgabe für neue Wecker. */
+    /** API-Schlüssel aus Google AI Studio für die Gemini-Stimmen (bleibt nur auf dem Handy). */
+    public String geminiKey() { return sp.getString("geminiKey", ""); }
+    /** Zuletzt gewählte Stimme und Sprechweise – Vorgabe für neue Wecker. */
     public String lastVoice() { return sp.getString("lastVoice", ""); }
     public String lastVoiceLabel() { return sp.getString("lastVoiceLabel", ""); }
+    public String lastVoiceStyle() { return sp.getString("lastVoiceStyle", ""); }
 
     // --- Lautsprecher und Radio ---
     public String radioUrl() { return sp.getString("radioUrl", DEFAULT_RADIO); }

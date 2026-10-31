@@ -18,12 +18,13 @@ import java.util.concurrent.TimeUnit;
 public final class Tts {
     private Tts() { }
 
-    /** Mit der gewählten Stimme (siehe {@link VoiceSpec}). */
-    public static void toWav(Context ctx, String text, String spec, File out) throws Exception {
-        if (VoiceSpec.isCloud(spec)) {
-            String key = new Prefs(ctx).cloudKey();
-            if (key.isEmpty()) throw new Exception("Kein API-Schlüssel für Google Cloud hinterlegt");
-            byte[] wav = CloudTts.synthesize(key, VoiceSpec.cloudVoice(spec), text);
+    /**
+     * Mit der gewählten Stimme (siehe {@link VoiceSpec}).
+     * @param style Sprechweise für Gemini-Stimmen; sonst ohne Bedeutung
+     */
+    public static void toWav(Context ctx, String text, String spec, String style, File out) throws Exception {
+        if (VoiceSpec.isOnline(spec)) {
+            byte[] wav = onlineWav(ctx, spec, style, text);
             if (out.exists()) out.delete();
             try (FileOutputStream o = new FileOutputStream(out)) {
                 o.write(wav);
@@ -33,6 +34,17 @@ public final class Tts {
         } else {
             synthesize(ctx, text, out, null, null);
         }
+    }
+
+    /** WAV-Daten einer Online-Stimme (Google Cloud oder Gemini). */
+    public static byte[] onlineWav(Context ctx, String spec, String style, String text) throws Exception {
+        Prefs p = new Prefs(ctx);
+        if (VoiceSpec.isGemini(spec)) {
+            if (p.geminiKey().isEmpty()) throw new Exception("Kein API-Schlüssel für Gemini hinterlegt");
+            return GeminiTts.synthesize(p.geminiKey(), VoiceSpec.geminiVoice(spec), style, text);
+        }
+        if (p.cloudKey().isEmpty()) throw new Exception("Kein API-Schlüssel für Google Cloud hinterlegt");
+        return CloudTts.synthesize(p.cloudKey(), VoiceSpec.cloudVoice(spec), text);
     }
 
     /** Mit der Standardstimme des Handys. */

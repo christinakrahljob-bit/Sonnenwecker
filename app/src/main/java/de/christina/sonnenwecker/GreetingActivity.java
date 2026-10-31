@@ -262,6 +262,9 @@ public class GreetingActivity extends Activity implements VoicePlayer.Listener {
         if (voiceText == null) return;
         Alarm a = store.get(alarmId);
         String label = a != null ? VoiceSpec.label(a.voice, a.voiceLabel) : VoiceSpec.DEFAULT_LABEL;
+        if (a != null && VoiceSpec.isGemini(a.voice) && !a.voiceStyle.trim().isEmpty()) {
+            label += " · " + Ui.ellipsize(GeminiTts.styleLabel(a.voiceStyle), 40);
+        }
         voiceText.setText(label);
         voiceRow.setContentDescription("Stimme: " + label + ". Ändern");
     }
@@ -458,7 +461,7 @@ public class GreetingActivity extends Activity implements VoicePlayer.Listener {
             return;
         }
         Alarm a = store.get(alarmId);
-        player.play(a != null ? a.voice : VoiceSpec.DEFAULT, text);
+        player.play(a != null ? a.voice : VoiceSpec.DEFAULT, a != null ? a.voiceStyle : "", text);
     }
 
     @Override

@@ -62,6 +62,7 @@ public final class AlarmStore {
         a.middayDays = prefs.defaultMiddayMask();
         a.voice = prefs.lastVoice();         // neue Wecker sprechen mit der zuletzt gewählten Stimme
         a.voiceLabel = prefs.lastVoiceLabel();
+        a.voiceStyle = prefs.lastVoiceStyle();
         list.add(a);
         saveAll(list);
         return a;

@@ -1,6 +1,6 @@
 # Sonnenwecker
 
-*Stand: 31.10.2026, 08:55 Uhr*
+*Stand: 31.10.2026, 09:48 Uhr*
 
 Android-Wecker-App. Jeder Wecker löst denselben Ablauf aus:
 
@@ -32,9 +32,10 @@ Das Datum wird ausgeschrieben gesprochen und passt sich dem Wort davor an: „de
 
 ## Stimme
 
-Jeder Wecker hat seine eigene Stimme: Wecker aufklappen → **Begrüßung** → **Stimme**. Mit dem Abspielknopf hörst du eine Probe auf dem Handy. Neue Wecker übernehmen die zuletzt gewählte Stimme.
+Jeder Wecker hat seine eigene Stimme: Wecker aufklappen → **Begrüßung** → **Stimme**. Die Stimmen sind auf drei Reiter verteilt: Gemini, Google Cloud und Handy. Mit dem Abspielknopf hörst du eine Probe auf dem Handy. Neue Wecker übernehmen die zuletzt gewählte Stimme und Sprechweise.
 
-- **Premium-Stimmen (Google Cloud):** sehr natürlich klingende „Chirp 3: HD“-Stimmen. Brauchen ein eigenes Google-Cloud-Konto mit API-Schlüssel (Anleitung in der App unter „So richtest du es ein“). Google verlangt dafür eine eingerichtete Abrechnung; 1 Million Zeichen im Monat sind kostenlos – die Begrüßungen brauchen davon nur einen kleinen Bruchteil.
+- **Gemini:** die 30 Stimmen von Google Gemini. Kostenlos mit dem eigenen Google-Konto – nötig ist nur ein API-Schlüssel aus Google AI Studio, keine Kreditkarte (Anleitung in der App unter „So bekommst du den Schlüssel“). Die **Sprechweise** stellst du pro Wecker ein: ohne Vorgabe, ruhig und warm, fröhlich und munter, sanft und leise oder eine eigene Anweisung. Kostenlos gibt es nur eine begrenzte Zahl Anfragen pro Tag; Google darf die Texte im kostenlosen Kontingent zur Verbesserung seiner Dienste nutzen. Schon gehörte Hörproben spielt die App ohne neue Anfrage ab.
+- **Google Cloud:** sehr natürlich klingende „Chirp 3: HD“-Stimmen. Brauchen ein eigenes Google-Cloud-Konto mit API-Schlüssel (Anleitung in der App unter „So richtest du es ein“). Google verlangt dafür eine eingerichtete Abrechnung; 1 Million Zeichen im Monat sind kostenlos – die Begrüßungen brauchen davon nur einen kleinen Bruchteil.
 - **Stimmen auf dem Handy:** alle deutschen Stimmen der installierten Sprachausgabe-Apps, z. B. von Google oder SherpaTTS (kostenlos bei F-Droid, Stimmen wie „Thorsten“, ganz ohne Internet).
 - **Sicherheitsnetz:** Ist die gewählte Stimme morgens nicht verfügbar (z. B. kein Internet), spricht die Standardstimme des Handys. Das Protokoll vermerkt das.
 

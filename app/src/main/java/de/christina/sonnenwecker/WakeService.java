@@ -129,12 +129,13 @@ public class WakeService extends Service {
         boolean haveGreeting = false;
         if (!text.isEmpty()) {
             String voice = alarm != null ? alarm.voice : VoiceSpec.DEFAULT;
+            String style = alarm != null ? alarm.voiceStyle : "";
             String error = null;
-            int attempts = VoiceSpec.isCloud(voice) ? 2 : 1; // Internet kann morgens kurz brauchen
+            int attempts = VoiceSpec.isOnline(voice) ? 2 : 1; // Internet kann morgens kurz brauchen
             for (int attempt = 0; attempt < attempts && !haveGreeting; attempt++) {
                 try {
                     if (attempt > 0) Thread.sleep(3000);
-                    Tts.toWav(this, text, voice, wav);
+                    Tts.toWav(this, text, voice, style, wav);
                     haveGreeting = true;
                 } catch (Exception e) {
                     error = e.getMessage();

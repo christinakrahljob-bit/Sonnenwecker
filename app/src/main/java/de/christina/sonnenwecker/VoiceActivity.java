@@ -12,6 +12,7 @@ import android.speech.tts.Voice;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.EditText;
@@ -28,27 +29,38 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
-/** Stimme eines Weckers wählen: Premium-Stimmen von Google Cloud oder Stimmen der Sprachausgabe-Apps auf dem Handy. */
+/**
+ * Stimme eines Weckers wählen – in drei Reitern: Gemini (mit Sprechweise), Google Cloud und die Stimmen der
+ * Sprachausgabe-Apps auf dem Handy. Jede Stimme lässt sich als Hörprobe anhören.
+ */
 public class VoiceActivity extends Activity implements VoicePlayer.Listener {
     public static final String EXTRA_ALARM = "alarm";
     static final String SAMPLE_WEATHER = "Heute wird es bis zu 12 Grad und bewölkt.";
     static final String SAMPLE_MIDDAY =
             "Zwischen 12 und 14 Uhr wird es etwa 11 Grad und sonnig. Die Regenwahrscheinlichkeit liegt bei 10 Prozent.";
+    private static final String AI_STUDIO = "https://aistudio.google.com/apikey";
     private static final String CLOUD_CONSOLE = "https://console.cloud.google.com/";
     private static final String SHERPA_URL = "https://f-droid.org/packages/org.woheller69.ttsengine/";
+    private static final int GEMINI = 0, CLOUD = 1, PHONE = 2;
+    private static final String[] TABS = {"Gemini", "Google Cloud", "Handy"};
 
     private Ui ui;
     private Prefs prefs;
     private AlarmStore store;
     private int alarmId;
     private long previewTime;
-    private String selected;
+    private String selected, style;
     private VoicePlayer player;
 
     private TextView current;
-    private LinearLayout cloudBox, phoneBox;
+    private final LinearLayout[] panes = new LinearLayout[3];
+    private final RadioButton[] tabs = new RadioButton[3];
+    private LinearLayout geminiBox, cloudBox, phoneBox;
     private int cloudLoad;
+    private final List<RadioButton> styleChips = new ArrayList<>();
+    private RadioButton customChip;
 
     private static final class VoiceRow {
         final String spec, title;
@@ -79,6 +91,7 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
             return;
         }
         selected = alarm.voice;
+        style = alarm.voiceStyle;
         long now = System.currentTimeMillis();
         long next = alarm.nextAfter(now);
         previewTime = next == Long.MAX_VALUE ? now : next;
@@ -98,24 +111,27 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         current.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), 0);
         current.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         body.addView(current);
-        updateCurrent(alarm.voice, alarm.voiceLabel);
+        updateCurrent();
         TextView intro = ui.text("Mit dem Abspielknopf hörst du eine Probe auf dem Handy. Morgens spricht der "
                 + "Lautsprecher mit derselben Stimme.", 13, ui.p.muted);
         intro.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), 0);
         body.addView(intro);
 
-        body.addView(ui.section("Premium-Stimmen (Google Cloud)"), ui.top(8));
+        body.addView(tabRow(), ui.top(16));
+
+        geminiBox = ui.card(ui.p.surface, 20);
+        geminiBox.setPadding(0, ui.dp(8), 0, ui.dp(8));
+        panes[GEMINI] = pane(body, geminiBox);
+
         cloudBox = ui.card(ui.p.surface, 20);
         cloudBox.setPadding(0, ui.dp(8), 0, ui.dp(8));
-        body.addView(cloudBox, ui.fill());
+        panes[CLOUD] = pane(body, cloudBox);
 
-        body.addView(ui.section("Stimmen auf dem Handy"), ui.top(8));
         phoneBox = ui.card(ui.p.surface, 20);
         phoneBox.setPadding(0, ui.dp(8), 0, ui.dp(8));
-        body.addView(phoneBox, ui.fill());
-
-        body.addView(ui.section("Mehr Stimmen"), ui.top(8));
-        body.addView(moreVoices(), ui.fill());
+        panes[PHONE] = pane(body, phoneBox);
+        panes[PHONE].addView(ui.section("Mehr Stimmen"), ui.top(8));
+        panes[PHONE].addView(moreVoices(), ui.fill());
 
         TextView foot = ui.text("Die Stimme gilt für diesen Wecker. Neue Wecker übernehmen die zuletzt gewählte. "
                 + "Ist sie morgens nicht verfügbar, spricht die Standardstimme des Handys.", 13, ui.p.muted);
@@ -124,6 +140,8 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         body.addView(foot, ui.top(20));
         setContentView(scroll);
 
+        showTab(VoiceSpec.isCloud(selected) ? CLOUD : VoiceSpec.isGemini(selected) || selected.isEmpty() ? GEMINI : PHONE);
+        renderGemini();
         renderCloud();
         loadPhoneVoices();
     }
@@ -146,8 +164,179 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         return h;
     }
 
-    private void updateCurrent(String spec, String label) {
-        current.setText("Gewählt: " + VoiceSpec.label(spec, label));
+    private void updateCurrent() {
+        Alarm a = store.get(alarmId);
+        if (a == null) return;
+        String s = "Gewählt: " + VoiceSpec.label(a.voice, a.voiceLabel);
+        if (VoiceSpec.isGemini(a.voice) && !a.voiceStyle.trim().isEmpty()) {
+            s += " · " + Ui.ellipsize(GeminiTts.styleLabel(a.voiceStyle), 60);
+        }
+        current.setText(s);
+    }
+
+    // ---------- Reiter ----------
+
+    private View tabRow() {
+        LinearLayout r = ui.row();
+        for (int i = 0; i < TABS.length; i++) {
+            final int idx = i;
+            RadioButton t = ui.radioChip(TABS[i]);
+            t.setContentDescription(TABS[i] + "-Stimmen");
+            t.setOnClickListener(v -> showTab(idx));
+            LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (i > 0) l.leftMargin = ui.dp(8);
+            r.addView(t, l);
+            tabs[i] = t;
+        }
+        return r;
+    }
+
+    private LinearLayout pane(LinearLayout body, LinearLayout card) {
+        LinearLayout p = ui.col();
+        p.addView(card, ui.fill());
+        body.addView(p, ui.top(12));
+        return p;
+    }
+
+    private void showTab(int idx) {
+        for (int i = 0; i < 3; i++) {
+            tabs[i].setChecked(i == idx);
+            panes[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    // ---------- Gemini ----------
+
+    private void renderGemini() {
+        if (VoiceSpec.isGemini(player.current())) player.stop();
+        geminiBox.removeAllViews();
+        removeRows(VoiceSpec::isGemini);
+        styleChips.clear();
+        customChip = null;
+        if (prefs.geminiKey().isEmpty()) {
+            LinearLayout pad = padded();
+            pad.addView(ui.text("Die Stimmen von Google Gemini. Kostenlos mit deinem Google-Konto: Du brauchst nur "
+                    + "einen API-Schlüssel aus Google AI Studio, keine Kreditkarte.", 15, ui.p.text2));
+            if (VoiceSpec.isGemini(selected)) {
+                pad.addView(ui.text("Dieser Wecker ist auf eine Gemini-Stimme eingestellt. Ohne Schlüssel spricht "
+                        + "morgens die Standardstimme des Handys.", 14, ui.p.warn), ui.top(10));
+            }
+            Button enter = ui.tonal("API-Schlüssel eingeben");
+            enter.setOnClickListener(v -> keyDialog(GEMINI));
+            pad.addView(enter, ui.top(14));
+            LinearLayout how = ui.iconText(R.drawable.i_cloud, "So bekommst du den Schlüssel", ui.p.onTonal);
+            how.setOnClickListener(v -> geminiHelp());
+            pad.addView(how, wrap(6));
+            geminiBox.addView(pad);
+            return;
+        }
+        geminiBox.addView(groupLabel("Sprechweise"));
+        geminiBox.addView(styleChooser());
+        geminiBox.addView(note("Gilt für die Gemini-Stimmen dieses Weckers – auch für die Hörproben."));
+
+        String group = null;
+        for (GeminiTts.GeminiVoice v : GeminiTts.voices()) {
+            String g = v.female ? "Weibliche Stimmen" : "Männliche Stimmen";
+            if (!g.equals(group)) {
+                group = g;
+                geminiBox.addView(groupLabel(g));
+            }
+            addRow(geminiBox, VoiceSpec.gemini(v.name), v.label(), v.name, v.trait);
+        }
+        geminiBox.addView(note("Kostenlos gibt es nur eine begrenzte Zahl Anfragen pro Tag (wieder neu ab "
+                + GeminiTts.resetTime() + "). Schon gehörte Proben spielt die App ohne neue Anfrage ab."));
+        LinearLayout change = ui.iconText(R.drawable.i_settings, "API-Schlüssel ändern", ui.p.onTonal);
+        change.setOnClickListener(v -> keyDialog(GEMINI));
+        LinearLayout.LayoutParams cl = wrap(4);
+        cl.leftMargin = ui.dp(12);
+        geminiBox.addView(change, cl);
+    }
+
+    private View styleChooser() {
+        LinearLayout box = ui.col();
+        box.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(4));
+        LinearLayout row = null;
+        for (int i = 0; i < GeminiTts.STYLES.length; i++) {
+            if (i % 2 == 0) {
+                row = ui.row();
+                box.addView(row, ui.top(i == 0 ? 0 : 8));
+            }
+            String instruction = GeminiTts.STYLES[i][1];
+            RadioButton c = ui.radioChip(GeminiTts.STYLES[i][0]);
+            c.setTag(instruction);
+            c.setOnClickListener(v -> setStyle(instruction));
+            LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (i % 2 == 1) l.leftMargin = ui.dp(8);
+            row.addView(c, l);
+            styleChips.add(c);
+        }
+        customChip = ui.radioChip("");
+        customChip.setOnClickListener(v -> customStyleDialog());
+        box.addView(customChip, ui.top(8));
+        updateStyleChips();
+        return box;
+    }
+
+    private void updateStyleChips() {
+        boolean preset = GeminiTts.isPresetStyle(style);
+        for (RadioButton c : styleChips) c.setChecked(preset && style.trim().equals(c.getTag()));
+        if (customChip != null) {
+            customChip.setChecked(!preset);
+            customChip.setText(preset ? "Eigene Anweisung …" : "Eigene: „" + Ui.ellipsize(style.trim(), 30) + "“");
+        }
+    }
+
+    private void setStyle(String instruction) {
+        Alarm a = store.get(alarmId);
+        if (a == null) return;
+        a.voiceStyle = instruction.trim();
+        store.update(a);
+        prefs.setString("lastVoiceStyle", a.voiceStyle);
+        style = a.voiceStyle;
+        if (VoiceSpec.isGemini(player.current())) player.stop();
+        updateStyleChips();
+        updateCurrent();
+    }
+
+    private void customStyleDialog() {
+        LinearLayout box = ui.col();
+        box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        box.addView(ui.text("Beschreibe, wie die Stimme sprechen soll – zum Beispiel „leise und gemütlich“ oder "
+                + "„gut gelaunt, mit einem Lächeln“.", 14, ui.p.text2));
+        EditText e = new EditText(this);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        e.setMinLines(2);
+        e.setHint("Sprechweise");
+        e.setContentDescription("Eigene Sprechweise");
+        if (!GeminiTts.isPresetStyle(style)) e.setText(style.trim());
+        e.setSelection(e.getText().length());
+        box.addView(e, ui.top(12));
+        new AlertDialog.Builder(this)
+                .setTitle("Eigene Sprechweise")
+                .setView(box)
+                .setPositiveButton("Übernehmen", (d, w) -> setStyle(e.getText().toString()))
+                .setNegativeButton("Abbrechen", (d, w) -> updateStyleChips())
+                .setOnCancelListener(d -> updateStyleChips())
+                .show();
+    }
+
+    private void geminiHelp() {
+        LinearLayout box = ui.col();
+        box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        box.addView(ui.text("1. Öffne Google AI Studio und melde dich mit deinem Google-Konto an.\n\n"
+                + "2. Erstelle dort einen API-Schlüssel (Menüpunkt „API-Schlüssel“, englisch „Get API key“).\n\n"
+                + "3. Kopiere den Schlüssel und füge ihn hier unter „API-Schlüssel eingeben“ ein.\n\n"
+                + "Das ist kostenlos und braucht keine Kreditkarte. Google begrenzt die kostenlosen Anfragen pro Tag "
+                + "und darf die Texte (Name, Datum, Wetter) zur Verbesserung seiner Dienste nutzen.", 15, ui.p.text2));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("Gemini-Schlüssel holen")
+                .setView(sv)
+                .setPositiveButton("Google AI Studio öffnen", (d, w) -> open(AI_STUDIO))
+                .setNegativeButton("Schließen", null)
+                .show();
     }
 
     // ---------- Google Cloud ----------
@@ -156,22 +345,22 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         cloudLoad++;
         if (VoiceSpec.isCloud(player.current())) player.stop();
         cloudBox.removeAllViews();
-        removeRows(true);
+        removeRows(VoiceSpec::isCloud);
         String key = prefs.cloudKey();
         if (key.isEmpty()) {
             LinearLayout pad = padded();
-            pad.addView(ui.text("Sehr natürlich klingende Stimmen von Google. Dafür brauchst du ein eigenes "
-                    + "Google-Cloud-Konto mit API-Schlüssel. Die Begrüßungen bleiben weit unter der Menge, "
-                    + "die Google jeden Monat kostenlos spricht.", 15, ui.p.text2));
+            pad.addView(ui.text("Sehr natürlich klingende Stimmen von Google Cloud. Dafür brauchst du ein "
+                    + "Google-Cloud-Konto mit eingerichteter Abrechnung und einen API-Schlüssel. Die Begrüßungen "
+                    + "bleiben weit unter der Menge, die Google jeden Monat kostenlos spricht.", 15, ui.p.text2));
             if (VoiceSpec.isCloud(selected)) {
                 pad.addView(ui.text("Dieser Wecker ist auf eine Google-Cloud-Stimme eingestellt. Ohne Schlüssel "
                         + "spricht morgens die Standardstimme des Handys.", 14, ui.p.warn), ui.top(10));
             }
             Button enter = ui.tonal("API-Schlüssel eingeben");
-            enter.setOnClickListener(v -> keyDialog());
+            enter.setOnClickListener(v -> keyDialog(CLOUD));
             pad.addView(enter, ui.top(14));
             LinearLayout how = ui.iconText(R.drawable.i_cloud, "So richtest du es ein", ui.p.onTonal);
-            how.setOnClickListener(v -> setupDialog());
+            how.setOnClickListener(v -> cloudHelp());
             pad.addView(how, wrap(6));
             cloudBox.addView(pad);
             return;
@@ -200,7 +389,7 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
 
     private void showCloudVoices(List<CloudTts.CloudVoice> voices) {
         cloudBox.removeAllViews();
-        removeRows(true);
+        removeRows(VoiceSpec::isCloud);
         if (voices.isEmpty()) {
             LinearLayout pad = padded();
             pad.addView(ui.text("Google meldet gerade keine deutschen Premium-Stimmen.", 15, ui.p.text2));
@@ -217,12 +406,10 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
                 String title = v.title().replace(" (weiblich)", "").replace(" (männlich)", "");
                 addRow(cloudBox, VoiceSpec.cloud(v.name), v.label(), title, "");
             }
-            TextView note = ui.text("Hörproben zählen mit zur kostenlosen Menge.", 13, ui.p.muted);
-            note.setPadding(ui.dp(20), ui.dp(8), ui.dp(20), 0);
-            cloudBox.addView(note);
+            cloudBox.addView(note("Hörproben zählen mit zur kostenlosen Menge."));
         }
         LinearLayout change = ui.iconText(R.drawable.i_settings, "API-Schlüssel ändern", ui.p.onTonal);
-        change.setOnClickListener(v -> keyDialog());
+        change.setOnClickListener(v -> keyDialog(CLOUD));
         LinearLayout.LayoutParams cl = wrap(4);
         cl.leftMargin = ui.dp(12);
         cloudBox.addView(change, cl);
@@ -230,97 +417,19 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
 
     private void showCloudError(String message) {
         cloudBox.removeAllViews();
-        removeRows(true);
+        removeRows(VoiceSpec::isCloud);
         LinearLayout pad = padded();
         pad.addView(ui.text("Die Premium-Stimmen ließen sich nicht laden: " + message, 15, ui.p.warn));
         LinearLayout retry = ui.iconText(R.drawable.i_restore, "Erneut versuchen", ui.p.onTonal);
         retry.setOnClickListener(v -> renderCloud());
         pad.addView(retry, wrap(8));
         LinearLayout change = ui.iconText(R.drawable.i_settings, "API-Schlüssel ändern", ui.p.onTonal);
-        change.setOnClickListener(v -> keyDialog());
+        change.setOnClickListener(v -> keyDialog(CLOUD));
         pad.addView(change, wrap(0));
         cloudBox.addView(pad);
     }
 
-    private void keyDialog() {
-        LinearLayout box = ui.col();
-        box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
-        box.addView(ui.text("Du findest ihn in Google Cloud unter „APIs und Dienste → Anmeldedaten“. "
-                + "Er wird nur auf diesem Handy gespeichert.", 14, ui.p.text2));
-        EditText e = new EditText(this);
-        e.setSingleLine(true);
-        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        e.setHint("API-Schlüssel (beginnt mit AIza)");
-        e.setText(prefs.cloudKey());
-        e.setSelection(e.getText().length());
-        e.setContentDescription("API-Schlüssel");
-        box.addView(e, ui.top(12));
-        TextView status = ui.text("", 14, ui.p.muted);
-        status.setVisibility(View.GONE);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        box.addView(status, ui.top(8));
-
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("API-Schlüssel")
-                .setView(box)
-                .setPositiveButton("Prüfen und speichern", null)
-                .setNegativeButton("Abbrechen", null);
-        if (!prefs.cloudKey().isEmpty()) b.setNeutralButton("Entfernen", (d, w) -> removeKey());
-        AlertDialog dialog = b.show();
-        Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        ok.setOnClickListener(v -> {
-            String key = e.getText().toString().trim();
-            status.setVisibility(View.VISIBLE);
-            if (key.isEmpty()) {
-                status.setTextColor(ui.p.warn);
-                status.setText("Bitte den Schlüssel einfügen.");
-                return;
-            }
-            ok.setEnabled(false);
-            status.setTextColor(ui.p.muted);
-            status.setText("Wird geprüft …");
-            new Thread(() -> {
-                String error = null;
-                int count = 0;
-                try {
-                    List<CloudTts.CloudVoice> voices = CloudTts.listVoices(key);
-                    count = voices.size();
-                    // Einmal kurz sprechen lassen: prüft auch Abrechnung und Einschränkungen des Schlüssels
-                    if (count > 0) CloudTts.synthesize(key, voices.get(0).name, "Test");
-                } catch (Exception ex) {
-                    error = ex.getMessage();
-                }
-                String err = error;
-                int n = count;
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (err != null) {
-                        ok.setEnabled(true);
-                        status.setTextColor(ui.p.warn);
-                        status.setText(err);
-                        return;
-                    }
-                    prefs.setString("cloudKey", key);
-                    prefs.log("Google-Cloud-Schlüssel gespeichert (" + n + " deutsche Premium-Stimmen)");
-                    dialog.dismiss();
-                    Toast.makeText(this, "Schlüssel gespeichert ✓", Toast.LENGTH_SHORT).show();
-                    renderCloud();
-                });
-            }, "sonnenwecker-schluessel").start();
-        });
-    }
-
-    private void removeKey() {
-        prefs.setString("cloudKey", "");
-        prefs.log("Google-Cloud-Schlüssel entfernt");
-        if (VoiceSpec.isCloud(selected)) {
-            Toast.makeText(this, "Ohne Schlüssel spricht dieser Wecker mit der Standardstimme.", Toast.LENGTH_LONG).show();
-        }
-        renderCloud();
-    }
-
-    private void setupDialog() {
+    private void cloudHelp() {
         LinearLayout box = ui.col();
         box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
         box.addView(ui.text("1. Öffne Google Cloud und melde dich mit deinem Google-Konto an.\n\n"
@@ -341,6 +450,94 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
                 .setPositiveButton("Google Cloud öffnen", (d, w) -> open(CLOUD_CONSOLE))
                 .setNegativeButton("Schließen", null)
                 .show();
+    }
+
+    // ---------- API-Schlüssel ----------
+
+    private void keyDialog(int provider) {
+        boolean gemini = provider == GEMINI;
+        String existing = gemini ? prefs.geminiKey() : prefs.cloudKey();
+        LinearLayout box = ui.col();
+        box.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        box.addView(ui.text(gemini
+                ? "Du findest ihn in Google AI Studio unter „API-Schlüssel“. Er wird nur auf diesem Handy gespeichert."
+                : "Du findest ihn in Google Cloud unter „APIs und Dienste → Anmeldedaten“. "
+                + "Er wird nur auf diesem Handy gespeichert.", 14, ui.p.text2));
+        EditText e = new EditText(this);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        e.setHint("API-Schlüssel (beginnt mit AIza)");
+        e.setText(existing);
+        e.setSelection(e.getText().length());
+        e.setContentDescription("API-Schlüssel");
+        box.addView(e, ui.top(12));
+        TextView status = ui.text("", 14, ui.p.muted);
+        status.setVisibility(View.GONE);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        box.addView(status, ui.top(8));
+
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(gemini ? "Gemini-API-Schlüssel" : "Google-Cloud-API-Schlüssel")
+                .setView(box)
+                .setPositiveButton("Prüfen und speichern", null)
+                .setNegativeButton("Abbrechen", null);
+        if (!existing.isEmpty()) b.setNeutralButton("Entfernen", (d, w) -> removeKey(provider));
+        AlertDialog dialog = b.show();
+        Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        ok.setOnClickListener(v -> {
+            String key = e.getText().toString().trim();
+            status.setVisibility(View.VISIBLE);
+            if (key.isEmpty()) {
+                status.setTextColor(ui.p.warn);
+                status.setText("Bitte den Schlüssel einfügen.");
+                return;
+            }
+            ok.setEnabled(false);
+            status.setTextColor(ui.p.muted);
+            status.setText("Wird geprüft …");
+            new Thread(() -> {
+                String error = null;
+                try {
+                    // Einmal kurz sprechen lassen: prüft Schlüssel, Freischaltung und Kontingent
+                    if (gemini) {
+                        GeminiTts.synthesize(key, "Kore", "", "Hallo");
+                    } else {
+                        List<CloudTts.CloudVoice> voices = CloudTts.listVoices(key);
+                        if (!voices.isEmpty()) CloudTts.synthesize(key, voices.get(0).name, "Test");
+                    }
+                } catch (Exception ex) {
+                    error = ex.getMessage();
+                }
+                String err = error;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (err != null) {
+                        ok.setEnabled(true);
+                        status.setTextColor(ui.p.warn);
+                        status.setText(err);
+                        return;
+                    }
+                    prefs.setString(gemini ? "geminiKey" : "cloudKey", key);
+                    prefs.log((gemini ? "Gemini" : "Google-Cloud") + "-Schlüssel gespeichert");
+                    dialog.dismiss();
+                    Toast.makeText(this, "Schlüssel gespeichert ✓", Toast.LENGTH_SHORT).show();
+                    if (gemini) renderGemini();
+                    else renderCloud();
+                });
+            }, "sonnenwecker-schluessel").start();
+        });
+    }
+
+    private void removeKey(int provider) {
+        boolean gemini = provider == GEMINI;
+        prefs.setString(gemini ? "geminiKey" : "cloudKey", "");
+        prefs.log((gemini ? "Gemini" : "Google-Cloud") + "-Schlüssel entfernt");
+        if (gemini ? VoiceSpec.isGemini(selected) : VoiceSpec.isCloud(selected)) {
+            Toast.makeText(this, "Ohne Schlüssel spricht dieser Wecker mit der Standardstimme.", Toast.LENGTH_LONG).show();
+        }
+        if (gemini) renderGemini();
+        else renderCloud();
     }
 
     // ---------- Stimmen auf dem Handy ----------
@@ -364,17 +561,14 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
                 }
             }
             if (engines.isEmpty()) {
-                TextView none = ui.text("Keine Sprachausgabe-App gefunden.", 14, ui.p.muted);
-                none.setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(8));
-                list.addView(none);
+                list.addView(note("Keine Sprachausgabe-App gefunden."));
                 return;
             }
             for (TextToSpeech.EngineInfo info : engines) {
                 LinearLayout group = ui.col();
                 list.addView(group, ui.fill());
                 group.addView(groupLabel(engineLabel(info)));
-                TextView wait = ui.text("Wird geladen …", 14, ui.p.muted);
-                wait.setPadding(ui.dp(20), ui.dp(4), ui.dp(20), ui.dp(8));
+                TextView wait = note("Wird geladen …");
                 group.addView(wait);
                 player.engine(info.name, (t, engineOk) -> fillEngine(group, wait, info, t, engineOk));
             }
@@ -464,9 +658,8 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
             }
         });
         card.addView(tts, wrap(8));
-        card.addView(ui.text("Natürlicher und ganz ohne Internet: die kostenlose App SherpaTTS aus F-Droid "
-                + "mit Stimmen wie „Thorsten“. Die deutsche Stimme lädst du dort einmal herunter.", 15, ui.p.text2),
-                ui.top(12));
+        card.addView(ui.text("Ganz ohne Internet: die kostenlose App SherpaTTS aus F-Droid mit Stimmen wie "
+                + "„Thorsten“. Die deutsche Stimme lädst du dort einmal herunter.", 15, ui.p.text2), ui.top(12));
         LinearLayout sherpa = ui.iconText(R.drawable.i_chevron, "SherpaTTS bei F-Droid ansehen", ui.p.onTonal);
         sherpa.setOnClickListener(v -> open(SHERPA_URL));
         card.addView(sherpa, wrap(8));
@@ -514,8 +707,8 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         rows.put(spec, new VoiceRow(spec, title, radio, play));
     }
 
-    private void removeRows(boolean cloud) {
-        rows.keySet().removeIf(s -> VoiceSpec.isCloud(s) == cloud);
+    private void removeRows(Predicate<String> which) {
+        rows.keySet().removeIf(which);
     }
 
     private TextView groupLabel(String s) {
@@ -526,8 +719,8 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
     }
 
     private TextView note(String s) {
-        TextView t = ui.text(s, 14, ui.p.muted);
-        t.setPadding(ui.dp(20), ui.dp(4), ui.dp(20), ui.dp(8));
+        TextView t = ui.text(s, 13, ui.p.muted);
+        t.setPadding(ui.dp(20), ui.dp(6), ui.dp(20), ui.dp(8));
         return t;
     }
 
@@ -551,15 +744,16 @@ public class VoiceActivity extends Activity implements VoicePlayer.Listener {
         a.voice = spec;
         a.voiceLabel = spec.isEmpty() ? "" : label;
         store.update(a);
-        prefs.edit().putString("lastVoice", a.voice).putString("lastVoiceLabel", a.voiceLabel).apply();
+        prefs.edit().putString("lastVoice", a.voice).putString("lastVoiceLabel", a.voiceLabel)
+                .putString("lastVoiceStyle", a.voiceStyle).apply();
         selected = spec;
         for (VoiceRow r : rows.values()) r.radio.setChecked(r.spec.equals(selected));
-        updateCurrent(a.voice, a.voiceLabel);
+        updateCurrent();
     }
 
     private void togglePlay(String spec) {
         if (player.isPlaying(spec)) player.stop();
-        else player.play(spec, sampleText());
+        else player.play(spec, VoiceSpec.isGemini(spec) ? style : "", sampleText());
     }
 
     /** Die Begrüßung dieses Weckers mit Beispielwetter. */

@@ -28,8 +28,10 @@ public final class Alarm {
     public int middayDays = DEFAULT_MIDDAY;
     /** Stimme der Begrüßung (siehe {@link VoiceSpec}); leer = Standardstimme des Handys. */
     public String voice = "";
-    /** Anzeigename der Stimme, z. B. „Google Cloud · Aoede (weiblich)“. */
+    /** Anzeigename der Stimme, z. B. „Gemini · Kore (bestimmt)“. */
     public String voiceLabel = "";
+    /** Sprechweise für Gemini-Stimmen (Anweisung an Gemini); leer = ohne Vorgabe. */
+    public String voiceStyle = "";
 
     public Alarm(int id, int hour, int minute) {
         this.id = id;
@@ -146,7 +148,7 @@ public final class Alarm {
                 .put("id", id).put("h", hour).put("m", minute)
                 .put("days", days).put("on", enabled).put("label", label)
                 .put("greet", greeting).put("mdays", middayDays)
-                .put("voice", voice).put("voiceLabel", voiceLabel);
+                .put("voice", voice).put("voiceLabel", voiceLabel).put("vstyle", voiceStyle);
     }
 
     static Alarm fromJson(JSONObject o) {
@@ -165,6 +167,7 @@ public final class Alarm {
         a.middayDays = o.has("mdays") ? o.optInt("mdays", defaultMidday) : defaultMidday;
         a.voice = o.optString("voice", "");
         a.voiceLabel = o.optString("voiceLabel", "");
+        a.voiceStyle = o.optString("vstyle", "");
         return a;
     }
 }

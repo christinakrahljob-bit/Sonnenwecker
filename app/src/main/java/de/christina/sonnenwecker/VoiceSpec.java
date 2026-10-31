@@ -8,7 +8,8 @@ import java.util.regex.Pattern;
  * Kennung einer Stimme, wie sie beim Wecker gespeichert wird:
  * leer = Standardstimme des Handys,
  * „tts:&lt;App-Paket&gt;|&lt;Stimmenname&gt;“ = eine Stimme einer Sprachausgabe-App auf dem Handy,
- * „cloud:&lt;Stimmenname&gt;“ = eine Premium-Stimme von Google Cloud.
+ * „cloud:&lt;Stimmenname&gt;“ = eine Premium-Stimme von Google Cloud,
+ * „gemini:&lt;Stimmenname&gt;“ = eine Stimme von Google Gemini.
  */
 public final class VoiceSpec {
     public static final String DEFAULT = "";
@@ -22,6 +23,23 @@ public final class VoiceSpec {
 
     public static String cloud(String voiceName) {
         return "cloud:" + voiceName;
+    }
+
+    public static String gemini(String voiceName) {
+        return "gemini:" + voiceName;
+    }
+
+    public static boolean isGemini(String spec) {
+        return spec != null && spec.startsWith("gemini:");
+    }
+
+    public static String geminiVoice(String spec) {
+        return isGemini(spec) ? spec.substring(7) : "";
+    }
+
+    /** Braucht morgens Internet (Google Cloud oder Gemini)? */
+    public static boolean isOnline(String spec) {
+        return isCloud(spec) || isGemini(spec);
     }
 
     public static boolean isEngine(String spec) {
