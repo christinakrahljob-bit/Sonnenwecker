@@ -6,12 +6,15 @@ import org.json.JSONObject;
 import java.util.Calendar;
 
 /**
- * Ein Wecker wie in der Uhr-App: Uhrzeit, Wochentage (keine = einmalig), an/aus und optionale Bezeichnung.
+ * Ein Wecker wie in der Uhr-App: Uhrzeit, Wochentage (keine = einmalig), an/aus, optionale Bezeichnung –
+ * und die eigene Begrüßung mit den Tagen, an denen das Mittagswetter angesagt wird.
  * Wochentage als Bitmaske: Bit 0 = Montag … Bit 6 = Sonntag.
  */
 public final class Alarm {
     public static final String[] SHORT = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
     public static final String[] LONG = {"Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"};
+    /** Mittagswetter am Montag und Mittwoch. */
+    public static final int DEFAULT_MIDDAY = 0b101;
 
     public int id;
     public int hour;
@@ -19,6 +22,10 @@ public final class Alarm {
     public int days;
     public boolean enabled;
     public String label = "";
+    /** Begrüßungstext mit Bausteinen wie {Datum}. Leer = keine Begrüßung, nur Radio. */
+    public String greeting = Greeting.STANDARD;
+    /** Tage, an denen der Baustein {Mittagswetter} gesprochen wird (Bitmaske wie {@link #days}). */
+    public int middayDays = DEFAULT_MIDDAY;
 
     public Alarm(int id, int hour, int minute) {
         this.id = id;
@@ -38,6 +45,26 @@ public final class Alarm {
     public void setDay(int index, boolean on) {
         if (on) days |= (1 << index);
         else days &= ~(1 << index);
+    }
+
+    public boolean hasMidday(int index) {
+        return (middayDays & (1 << index)) != 0;
+    }
+
+    public void setMidday(int index, boolean on) {
+        if (on) middayDays |= (1 << index);
+        else middayDays &= ~(1 << index);
+    }
+
+    /** Wird an diesem Tag das Mittagswetter angesagt? */
+    public boolean middayOn(long when) {
+        return maskOn(middayDays, when);
+    }
+
+    static boolean maskOn(int mask, long when) {
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(when);
+        return (mask & (1 << dayIndex(c.get(Calendar.DAY_OF_WEEK)))) != 0;
     }
 
     /** Montag = 0 … Sonntag = 6 für einen Calendar.DAY_OF_WEEK-Wert. */
@@ -113,14 +140,24 @@ public final class Alarm {
     JSONObject toJson() throws JSONException {
         return new JSONObject()
                 .put("id", id).put("h", hour).put("m", minute)
-                .put("days", days).put("on", enabled).put("label", label);
+                .put("days", days).put("on", enabled).put("label", label)
+                .put("greet", greeting).put("mdays", middayDays);
     }
 
     static Alarm fromJson(JSONObject o) {
+        return fromJson(o, DEFAULT_MIDDAY);
+    }
+
+    /**
+     * @param defaultMidday Mittagswetter-Tage für Wecker aus älteren Versionen (ohne eigene Begrüßung)
+     */
+    static Alarm fromJson(JSONObject o, int defaultMidday) {
         Alarm a = new Alarm(o.optInt("id"), o.optInt("h"), o.optInt("m"));
         a.days = o.optInt("days", 0);
         a.enabled = o.optBoolean("on", true);
         a.label = o.optString("label", "");
+        a.greeting = o.has("greet") ? o.optString("greet", Greeting.STANDARD) : Greeting.STANDARD;
+        a.middayDays = o.has("mdays") ? o.optInt("mdays", defaultMidday) : defaultMidday;
         return a;
     }
 }

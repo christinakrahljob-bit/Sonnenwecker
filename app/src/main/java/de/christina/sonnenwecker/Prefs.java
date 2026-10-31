@@ -72,6 +72,15 @@ public final class Prefs {
     public double lon() { return Double.longBitsToDouble(sp.getLong("lon", Double.doubleToLongBits(5.9533))); }
     /** Wochentage (Calendar.DAY_OF_WEEK als Ziffern), an denen das Mittagswetter angesagt wird. 2=Mo, 4=Mi. */
     public String middayDays() { return sp.getString("middayDays", "24"); }
+    /** Dieselben Tage als Bitmaske (Mo = Bit 0) – Vorgabe für neue Wecker und für Wecker aus älteren Versionen. */
+    public int defaultMiddayMask() {
+        int mask = 0;
+        for (char c : middayDays().toCharArray()) {
+            int dow = c - '0';
+            if (dow >= 1 && dow <= 7) mask |= 1 << Alarm.dayIndex(dow);
+        }
+        return mask;
+    }
     /** Wetter für den Weck-Bildschirm (vom letzten Wecken). */
     public String weatherToday() { return sp.getString("weatherToday", ""); }
     public String weatherMidday() { return sp.getString("weatherMidday", ""); }

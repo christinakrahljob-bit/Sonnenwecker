@@ -32,8 +32,9 @@ public class WakeService extends Service {
         startInForeground();
         String action = intent != null ? intent.getAction() : null;
         long target = intent != null ? intent.getLongExtra(Scheduler.EXTRA_TARGET, 0) : 0;
+        int alarmId = intent != null ? intent.getIntExtra(Scheduler.EXTRA_ALARM, 0) : 0;
         running.incrementAndGet();
-        new Thread(() -> work(action, target), "sonnenwecker-work").start();
+        new Thread(() -> work(action, target, alarmId), "sonnenwecker-work").start();
         return START_NOT_STICKY;
     }
 
@@ -51,7 +52,7 @@ public class WakeService extends Service {
         }
     }
 
-    private void work(String action, long target) {
+    private void work(String action, long target, int alarmId) {
         Prefs p = new Prefs(this);
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sonnenwecker:work");
@@ -65,9 +66,9 @@ public class WakeService extends Service {
             if (ACTION_WAKE.equals(action)) {
                 if (p.greetStartedFor() == target) return; // läuft schon
                 p.setLong("greetStartedFor", target);
-                greet(p, target, false);
+                greet(p, target, alarmId, false);
             } else if (ACTION_TEST_WAKE.equals(action)) {
-                greet(p, System.currentTimeMillis(), true);
+                greet(p, System.currentTimeMillis(), alarmId, true);
             }
         } catch (Exception e) {
             p.log("Fehler: " + e.getMessage());
@@ -89,8 +90,22 @@ public class WakeService extends Service {
         }
     }
 
-    private void greet(Prefs p, long wakeTime, boolean test) throws Exception {
-        // 1. Wetter holen, Text bauen, Anzeige für den Weck-Bildschirm speichern
+    /**
+     * @param alarmId der Wecker, dessen Begrüßung gesprochen wird; 0 beim Test = der nächste Wecker
+     */
+    private void greet(Prefs p, long wakeTime, int alarmId, boolean test) throws Exception {
+        // 0. Welcher Begrüßungstext? Der des Weckers – ohne Wecker der Standardtext
+        AlarmStore store = new AlarmStore(this);
+        Alarm alarm = alarmId > 0 ? store.get(alarmId) : null;
+        if (alarm == null && test) {
+            AlarmStore.Next next = store.next(System.currentTimeMillis());
+            if (next != null) alarm = next.alarm;
+        }
+        String template = alarm != null ? alarm.greeting : Greeting.STANDARD;
+        int middayMask = alarm != null ? alarm.middayDays : p.defaultMiddayMask();
+        boolean midday = Greeting.usesMidday(template) && Alarm.maskOn(middayMask, wakeTime);
+
+        // 1. Wetter holen (auch für den Weck-Bildschirm), Text bauen
         String forecast = null;
         for (int attempt = 0; attempt < 3 && forecast == null; attempt++) {
             try {
@@ -99,23 +114,25 @@ public class WakeService extends Service {
                 Thread.sleep(3000);
             }
         }
-        Weather.Day day = Weather.evaluate(forecast, wakeTime, p.middayDays());
+        Weather.Day day = Weather.evaluate(forecast, wakeTime, midday);
         String[] lines = Weather.display(day);
         p.edit().putString("weatherToday", lines[0]).putString("weatherMidday", lines[1])
                 .putString("weatherMiddayRain", lines[2]).putLong("weatherFor", wakeTime)
                 .putString("radioStatus", "startet").apply();
-        String text = Weather.greeting(p.name(), day, wakeTime);
-        p.log("Begrüßung: " + text);
+        String text = Greeting.render(template, p.name(), wakeTime,
+                Weather.todaySentence(day), Weather.middaySentence(day));
+        p.log(text.isEmpty() ? "Begrüßung: (leer – nur Radio)" : "Begrüßung: " + text);
 
         // 2. Sprachdatei erzeugen – klappt das nicht, läuft wenigstens das Radio
         File wav = new File(Prefs.cacheDir(this), "gruss.wav");
-        boolean haveGreeting;
-        try {
-            Tts.synthesize(this, text, wav);
-            haveGreeting = true;
-        } catch (Exception e) {
-            haveGreeting = false;
-            p.log("Begrüßung übersprungen: " + e.getMessage());
+        boolean haveGreeting = false;
+        if (!text.isEmpty()) {
+            try {
+                Tts.synthesize(this, text, wav);
+                haveGreeting = true;
+            } catch (Exception e) {
+                p.log("Begrüßung übersprungen: " + e.getMessage());
+            }
         }
         long wavMs = haveGreeting ? Tts.wavDurationMs(wav) : 0;
 

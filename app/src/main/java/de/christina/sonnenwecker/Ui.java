@@ -33,7 +33,8 @@ final class Ui {
 
     static final class Pal {
         int bg, surface, surfaceHigh, divider, text, text2, muted, outline, accent, onAccent,
-                tonal, onTonal, okBg, ok, warnBg, warn, switchOff, cloud, ripple, field;
+                tonal, onTonal, okBg, ok, warnBg, warn, switchOff, cloud, ripple, field,
+                snackBg, snackText, snackAction;
     }
 
     static Pal darkPal() {
@@ -43,6 +44,7 @@ final class Ui {
         p.accent = 0xFFFFB547; p.onAccent = 0xFF2A1700; p.tonal = 0xFF3A2E1F; p.onTonal = 0xFFFFD8A0;
         p.okBg = 0xFF23302A; p.ok = 0xFFA8E6BD; p.warnBg = 0xFF2E2416; p.warn = 0xFFFFB547;
         p.switchOff = 0xFF2C2834; p.cloud = 0xFFB9C4FF; p.ripple = 0x33FFFFFF; p.field = 0xFF121016;
+        p.snackBg = 0xFFEDE6F0; p.snackText = 0xFF1E1A22; p.snackAction = 0xFF8A4D00;
         return p;
     }
 
@@ -53,6 +55,7 @@ final class Ui {
         p.accent = 0xFFFFB547; p.onAccent = 0xFF2A1700; p.tonal = 0xFFFFE2BC; p.onTonal = 0xFF5A3300;
         p.okBg = 0xFFDDF3E3; p.ok = 0xFF1E6B3A; p.warnBg = 0xFFFFE9C7; p.warn = 0xFF8A4D00;
         p.switchOff = 0xFFEFE3D3; p.cloud = 0xFF3D4FA8; p.ripple = 0x22000000; p.field = 0xFFFFFFFF;
+        p.snackBg = 0xFF322F35; p.snackText = 0xFFF5EFF7; p.snackAction = 0xFFFFB547;
         return p;
     }
 

@@ -29,7 +29,6 @@ import java.util.Locale;
 /** Einstellungen für den Ablauf beim Wecken. Änderungen werden sofort gespeichert. */
 public class SettingsActivity extends Activity {
     private static final int[] FADES = {10, 15, 20, 30};
-    private static final int[] DOW = {2, 3, 4, 5, 6, 7, 1}; // Calendar.DAY_OF_WEEK für Mo … So
 
     private Ui ui;
     private Prefs prefs;
@@ -237,8 +236,12 @@ public class SettingsActivity extends Activity {
         LinearLayout card = ui.card(ui.p.surface, 20);
         card.setPadding(0, ui.dp(4), 0, ui.dp(4));
 
+        TextView perAlarm = ui.text("Den Text der Begrüßung stellst du bei jedem Wecker ein.", 13, ui.p.muted);
+        perAlarm.setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(4));
+        card.addView(perAlarm);
+
         LinearLayout nameBox = ui.col();
-        nameBox.setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(16));
+        nameBox.setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(16));
         TextView nl = ui.text("Name", 16, ui.p.text);
         nameBox.addView(nl);
         EditText name = new EditText(this);
@@ -261,29 +264,9 @@ public class SettingsActivity extends Activity {
             }
         });
         nameBox.addView(name, ui.top(8));
+        TextView nameHint = ui.text("Für den Baustein „Name“ und den Weck-Bildschirm", 13, ui.p.muted);
+        nameBox.addView(nameHint, ui.top(8));
         card.addView(nameBox);
-
-        card.addView(ui.divider());
-        LinearLayout md = ui.col();
-        md.setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(16));
-        md.addView(ui.text("Mittagswetter (12–14 Uhr) ansagen", 16, ui.p.text));
-        LinearLayout chips = ui.row();
-        String current = prefs.middayDays();
-        for (int i = 0; i < 7; i++) {
-            final int dow = DOW[i];
-            CheckBox c = ui.checkChip(Alarm.SHORT[i], "Mittagswetter am " + Alarm.LONG[i]);
-            c.setChecked(current.indexOf(Character.forDigit(dow, 10)) >= 0);
-            c.setOnCheckedChangeListener((b, on) -> {
-                String days = prefs.middayDays().replace(String.valueOf(Character.forDigit(dow, 10)), "");
-                if (on) days += Character.forDigit(dow, 10);
-                prefs.setString("middayDays", days);
-            });
-            LinearLayout.LayoutParams l = ui.weight();
-            if (i > 0) l.leftMargin = ui.dp(6);
-            chips.addView(c, l);
-        }
-        md.addView(chips, ui.top(10));
-        card.addView(md);
 
         card.addView(ui.divider());
         placeRow = ui.listRow("Ort fürs Wetter", prefs.placeName(), ui.icon(R.drawable.i_chevron, ui.p.muted, 20));
@@ -298,6 +281,7 @@ public class SettingsActivity extends Activity {
             Toast.makeText(this, "Gleich spricht der Lautsprecher …", Toast.LENGTH_SHORT).show();
         });
         tb.addView(test, ui.fill());
+        tb.addView(ui.text("Über den Lautsprecher, mit dem Text des nächsten Weckers", 13, ui.p.muted), ui.top(8));
         card.addView(tb);
         body.addView(card, ui.fill());
     }

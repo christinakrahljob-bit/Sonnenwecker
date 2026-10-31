@@ -20,7 +20,7 @@ public class TriggerReceiver extends BroadcastReceiver {
 
         switch (action) {
             case Scheduler.ACTION_PREP:
-                if (target != 0 && target == p.nextTarget()) startGreeting(ctx, target);
+                if (target != 0 && target == p.nextTarget()) startGreeting(ctx, target, alarmId);
                 break;
 
             case Scheduler.ACTION_RING: {
@@ -29,7 +29,7 @@ public class TriggerReceiver extends BroadcastReceiver {
                 Ringing.show(ctx, target);
                 if (p.backupEnabled()) Scheduler.scheduleBackup(ctx, target);
                 // Falls die Vorbereitung ausgefallen ist (z. B. Wecker erst vor Sekunden gestellt): jetzt begrüßen
-                if (p.greetStartedFor() != target) startGreeting(ctx, target);
+                if (p.greetStartedFor() != target) startGreeting(ctx, target, alarmId);
                 p.log("Wecken " + new SimpleDateFormat("HH:mm", Locale.GERMANY).format(new Date(target)));
                 syncLater(ctx, false);
                 break;
@@ -54,10 +54,11 @@ public class TriggerReceiver extends BroadcastReceiver {
         }
     }
 
-    private static void startGreeting(Context ctx, long target) {
+    private static void startGreeting(Context ctx, long target, int alarmId) {
         ctx.startForegroundService(new Intent(ctx, WakeService.class)
                 .setAction(WakeService.ACTION_WAKE)
-                .putExtra(Scheduler.EXTRA_TARGET, target));
+                .putExtra(Scheduler.EXTRA_TARGET, target)
+                .putExtra(Scheduler.EXTRA_ALARM, alarmId));
     }
 
     /** Neu planen und die Hue-Automation abgleichen – im Hintergrund, weil die Bridge übers Netz angesprochen wird. */

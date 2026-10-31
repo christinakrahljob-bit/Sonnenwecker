@@ -39,6 +39,12 @@
             android:label="Einstellungen" />
 
         <activity
+            android:name=".GreetingActivity"
+            android:exported="false"
+            android:label="Begrüßung"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".StatusActivity"
             android:exported="false"
             android:label="Status und Einrichtung" />

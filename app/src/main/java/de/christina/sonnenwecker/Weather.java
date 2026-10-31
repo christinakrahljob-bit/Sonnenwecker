@@ -10,12 +10,11 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** Holt das Wetter (Open-Meteo, ohne Konto), baut Begrüßungstext und Anzeige, sucht Orte. */
+/** Holt das Wetter (Open-Meteo, ohne Konto), baut die Wetter-Sätze und die Anzeige, sucht Orte. */
 public final class Weather {
     private Weather() { }
 
@@ -24,7 +23,7 @@ public final class Weather {
         public boolean ok;
         public long max;
         public int code;
-        public boolean midday;      // Mittagswetter heute ansagen?
+        public boolean midday;      // Mittagswetter für diesen Tag gewünscht?
         public boolean middayOk;
         public long middayTemp;
         public int middayCode;
@@ -43,11 +42,18 @@ public final class Weather {
         }
     }
 
+    /** Vorhersage für heute und morgen (für das Wecken). */
     public static String fetchForecast(double lat, double lon) throws Exception {
+        return fetchForecast(lat, lon, 2);
+    }
+
+    /** Vorhersage für {@code days} Tage ab heute (1–16, z. B. für die Vorschau eines Weckers in ein paar Tagen). */
+    public static String fetchForecast(double lat, double lon, int days) throws Exception {
+        int d = Math.max(1, Math.min(16, days));
         return get("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
                 + "&daily=temperature_2m_max,weather_code"
                 + "&hourly=temperature_2m,weather_code,precipitation_probability"
-                + "&timezone=auto&forecast_days=2");
+                + "&timezone=auto&forecast_days=" + d);
     }
 
     /** Orte zu einem Namen suchen (für die Einstellung „Ort fürs Wetter“). */
@@ -87,25 +93,26 @@ public final class Weather {
         }
     }
 
-    /** Wertet die Vorhersage für den Tag der Weckzeit aus. */
-    public static Day evaluate(String forecastJson, long wakeTime, String middayDays) {
+    /**
+     * Wertet die Vorhersage für den Tag von {@code when} aus.
+     * @param midday soll das Wetter zwischen 12 und 14 Uhr mit ausgewertet werden?
+     */
+    public static Day evaluate(String forecastJson, long when, boolean midday) {
         Day d = new Day();
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(wakeTime);
-        int dow = cal.get(Calendar.DAY_OF_WEEK);
-        d.midday = middayDays != null && middayDays.indexOf(Character.forDigit(dow, 10)) >= 0;
+        d.midday = midday;
         if (forecastJson == null) return d;
         try {
             JSONObject j = new JSONObject(forecastJson);
-            String day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(wakeTime));
+            String day = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(when));
             JSONObject daily = j.getJSONObject("daily");
             JSONArray days = daily.getJSONArray("time");
-            int di = 0;
+            int di = -1;
             for (int i = 0; i < days.length(); i++) if (day.equals(days.getString(i))) di = i;
+            if (di < 0) return d; // Tag liegt außerhalb der Vorhersage
             d.max = Math.round(daily.getJSONArray("temperature_2m_max").getDouble(di));
             d.code = daily.getJSONArray("weather_code").getInt(di);
             d.ok = true;
-            if (d.midday) {
+            if (midday) {
                 JSONObject hourly = j.getJSONObject("hourly");
                 JSONArray times = hourly.getJSONArray("time");
                 JSONArray temps = hourly.getJSONArray("temperature_2m");
@@ -132,32 +139,23 @@ public final class Weather {
             }
         } catch (Exception e) {
             d.ok = false;
+            d.middayOk = false;
         }
         return d;
     }
 
-    /** Begrüßungstext zum Vorlesen. */
-    public static String greeting(String name, Day d, long wakeTime) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(wakeTime);
-        int h = cal.get(Calendar.HOUR_OF_DAY);
-        int m = cal.get(Calendar.MINUTE);
-        StringBuilder t = new StringBuilder();
-        t.append("Guten Morgen, ").append(name).append("! ");
-        t.append("Es ist ").append(h).append(" Uhr");
-        if (m != 0) t.append(' ').append(m);
-        t.append(". ");
-        if (!d.ok) {
-            t.append("Das Wetter konnte ich gerade leider nicht abrufen.");
-            return t.toString();
-        }
-        t.append("Heute wird es bis zu ").append(degrees(d.max)).append(join(describe(d.code))).append('.');
-        if (d.middayOk) {
-            t.append(" Zwischen 12 und 14 Uhr wird es etwa ").append(degrees(d.middayTemp))
-                    .append(join(describe(d.middayCode))).append('.');
-            if (d.middayRain >= 0) t.append(" Die Regenwahrscheinlichkeit liegt bei ").append(d.middayRain).append(" Prozent.");
-        }
-        return t.toString();
+    /** Satz für den Baustein {Wetter heute}. */
+    public static String todaySentence(Day d) {
+        if (!d.ok) return "Das Wetter konnte ich gerade leider nicht abrufen.";
+        return "Heute wird es bis zu " + degrees(d.max) + join(describe(d.code)) + ".";
+    }
+
+    /** Satz für den Baustein {Mittagswetter}; leer, wenn es an diesem Tag nicht angesagt wird oder fehlt. */
+    public static String middaySentence(Day d) {
+        if (!d.middayOk) return "";
+        String s = "Zwischen 12 und 14 Uhr wird es etwa " + degrees(d.middayTemp) + join(describe(d.middayCode)) + ".";
+        if (d.middayRain >= 0) s += " Die Regenwahrscheinlichkeit liegt bei " + d.middayRain + " Prozent.";
+        return s;
     }
 
     /** Zeilen für den Weck-Bildschirm: {heute, mittags, Regen} – leere Zeichenkette, wenn nicht zutreffend. */
@@ -170,11 +168,6 @@ public final class Weather {
             if (d.middayRain >= 0) rain = "Regenwahrscheinlichkeit " + d.middayRain + " %";
         }
         return new String[]{today, midday, rain};
-    }
-
-    /** Kompatibilität: Text direkt aus der Vorhersage. */
-    public static String greeting(String name, String forecastJson, long wakeTime, String middayDays) {
-        return greeting(name, evaluate(forecastJson, wakeTime, middayDays), wakeTime);
     }
 
     private static String degrees(long v) {

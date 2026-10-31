@@ -31,7 +31,8 @@ public final class AlarmStore {
         List<Alarm> list = new ArrayList<>();
         try {
             JSONArray a = new JSONArray(prefs.alarmsJson());
-            for (int i = 0; i < a.length(); i++) list.add(Alarm.fromJson(a.getJSONObject(i)));
+            int midday = prefs.defaultMiddayMask();
+            for (int i = 0; i < a.length(); i++) list.add(Alarm.fromJson(a.getJSONObject(i), midday));
         } catch (Exception ignored) {
         }
         Collections.sort(list, (x, y) -> x.hour != y.hour ? x.hour - y.hour
@@ -58,6 +59,7 @@ public final class AlarmStore {
         int id = 1;
         for (Alarm a : list) id = Math.max(id, a.id + 1);
         Alarm a = new Alarm(id, hour, minute);
+        a.middayDays = prefs.defaultMiddayMask();
         list.add(a);
         saveAll(list);
         return a;

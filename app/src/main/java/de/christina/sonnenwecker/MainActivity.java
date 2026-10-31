@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -256,6 +257,32 @@ public class MainActivity extends Activity {
         label.setOnClickListener(v -> editLabel(a));
         card.addView(label, ui.top(10));
 
+        // Begrüßung dieses Weckers
+        LinearLayout greet = ui.row();
+        greet.setMinimumHeight(ui.dp(56));
+        greet.setPadding(ui.dp(12), ui.dp(8), ui.dp(8), ui.dp(8));
+        greet.setBackground(ui.ripple(ui.shape(ui.p.surface, 14), 14));
+        greet.addView(ui.icon(R.drawable.i_speaker, ui.p.accent, 20));
+        LinearLayout gt = ui.col();
+        gt.addView(ui.text("Begrüßung", 15, ui.p.text));
+        String excerpt = greetingExcerpt(a, now);
+        TextView ex = ui.text(excerpt, 13, ui.p.muted);
+        ex.setSingleLine(true);
+        ex.setEllipsize(TextUtils.TruncateAt.END);
+        gt.addView(ex, ui.top(2));
+        LinearLayout.LayoutParams gtl = ui.weight();
+        gtl.leftMargin = ui.dp(12);
+        greet.addView(gt, gtl);
+        greet.addView(ui.icon(R.drawable.i_chevron, ui.p.muted, 20));
+        greet.setClickable(true);
+        greet.setFocusable(true);
+        greet.setContentDescription("Begrüßung bearbeiten: " + excerpt);
+        greet.setOnClickListener(v -> startActivity(new Intent(this, GreetingActivity.class)
+                .putExtra(GreetingActivity.EXTRA_ALARM, a.id)));
+        LinearLayout.LayoutParams gl = ui.top(6);
+        gl.rightMargin = ui.dp(8);
+        card.addView(greet, gl);
+
         // Hinweis auf den Ablauf
         LinearLayout info = ui.card(ui.p.surface, 14);
         info.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(6));
@@ -292,6 +319,14 @@ public class MainActivity extends Activity {
         r4.addView(less);
         card.addView(r4, ui.top(4));
         return card;
+    }
+
+    /** Anfang der Begrüßung für die Wecker-Karte – mit Datum und Uhrzeit des nächsten Weckens. */
+    private String greetingExcerpt(Alarm a, long now) {
+        long when = a.nextAfter(now);
+        if (when == Long.MAX_VALUE) when = now;
+        String s = Greeting.render(a.greeting, prefs.name(), when, "Heute wird es …", "");
+        return s.isEmpty() ? "Keine Begrüßung – nur Radio" : "„" + s + "“";
     }
 
     private Switch toggleFor(Alarm a) {
