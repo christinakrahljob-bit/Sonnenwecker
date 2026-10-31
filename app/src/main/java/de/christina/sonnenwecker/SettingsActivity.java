@@ -236,7 +236,7 @@ public class SettingsActivity extends Activity {
         LinearLayout card = ui.card(ui.p.surface, 20);
         card.setPadding(0, ui.dp(4), 0, ui.dp(4));
 
-        TextView perAlarm = ui.text("Den Text der Begrüßung stellst du bei jedem Wecker ein.", 13, ui.p.muted);
+        TextView perAlarm = ui.text("Text und Stimme der Begrüßung stellst du bei jedem Wecker ein.", 13, ui.p.muted);
         perAlarm.setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(4));
         card.addView(perAlarm);
 

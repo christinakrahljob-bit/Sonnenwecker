@@ -123,16 +123,34 @@ public class WakeService extends Service {
                 Weather.todaySentence(day), Weather.middaySentence(day));
         p.log(text.isEmpty() ? "Begrüßung: (leer – nur Radio)" : "Begrüßung: " + text);
 
-        // 2. Sprachdatei erzeugen – klappt das nicht, läuft wenigstens das Radio
+        // 2. Sprachdatei erzeugen – mit der Stimme des Weckers, sonst mit der Standardstimme.
+        //    Klappt beides nicht, läuft wenigstens das Radio.
         File wav = new File(Prefs.cacheDir(this), "gruss.wav");
         boolean haveGreeting = false;
         if (!text.isEmpty()) {
-            try {
-                Tts.synthesize(this, text, wav);
-                haveGreeting = true;
-            } catch (Exception e) {
-                p.log("Begrüßung übersprungen: " + e.getMessage());
+            String voice = alarm != null ? alarm.voice : VoiceSpec.DEFAULT;
+            String error = null;
+            int attempts = VoiceSpec.isCloud(voice) ? 2 : 1; // Internet kann morgens kurz brauchen
+            for (int attempt = 0; attempt < attempts && !haveGreeting; attempt++) {
+                try {
+                    if (attempt > 0) Thread.sleep(3000);
+                    Tts.toWav(this, text, voice, wav);
+                    haveGreeting = true;
+                } catch (Exception e) {
+                    error = e.getMessage();
+                }
             }
+            if (!haveGreeting && !voice.isEmpty()) {
+                p.log("Stimme „" + VoiceSpec.label(voice, alarm.voiceLabel) + "“ nicht verfügbar (" + error
+                        + ") – nehme die Standardstimme");
+                try {
+                    Tts.synthesize(this, text, wav);
+                    haveGreeting = true;
+                } catch (Exception e) {
+                    error = e.getMessage();
+                }
+            }
+            if (!haveGreeting) p.log("Begrüßung übersprungen: " + error);
         }
         long wavMs = haveGreeting ? Tts.wavDurationMs(wav) : 0;
 

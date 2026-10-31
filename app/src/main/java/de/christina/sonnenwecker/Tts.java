@@ -4,48 +4,92 @@ import android.content.Context;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.RandomAccessFile;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/** Wandelt den Begrüßungstext mit der Android-Sprachausgabe in eine WAV-Datei um. */
+/** Wandelt den Begrüßungstext in eine WAV-Datei um – mit der Stimme, die beim Wecker gewählt ist. */
 public final class Tts {
     private Tts() { }
 
+    /** Mit der gewählten Stimme (siehe {@link VoiceSpec}). */
+    public static void toWav(Context ctx, String text, String spec, File out) throws Exception {
+        if (VoiceSpec.isCloud(spec)) {
+            String key = new Prefs(ctx).cloudKey();
+            if (key.isEmpty()) throw new Exception("Kein API-Schlüssel für Google Cloud hinterlegt");
+            byte[] wav = CloudTts.synthesize(key, VoiceSpec.cloudVoice(spec), text);
+            if (out.exists()) out.delete();
+            try (FileOutputStream o = new FileOutputStream(out)) {
+                o.write(wav);
+            }
+        } else if (VoiceSpec.isEngine(spec)) {
+            synthesize(ctx, text, out, VoiceSpec.enginePackage(spec), VoiceSpec.engineVoice(spec));
+        } else {
+            synthesize(ctx, text, out, null, null);
+        }
+    }
+
+    /** Mit der Standardstimme des Handys. */
     public static void synthesize(Context ctx, String text, File out) throws Exception {
+        synthesize(ctx, text, out, null, null);
+    }
+
+    /**
+     * @param enginePackage Sprachausgabe-App; null/leer = die in Android eingestellte
+     * @param voiceName     Stimme dieser App; null/leer = deutsche Standardstimme. Fehlt sie, gibt es einen Fehler.
+     */
+    public static void synthesize(Context ctx, String text, File out, String enginePackage, String voiceName)
+            throws Exception {
         CountDownLatch init = new CountDownLatch(1);
         int[] status = {TextToSpeech.ERROR};
-        TextToSpeech[] tts = new TextToSpeech[1];
-        tts[0] = new TextToSpeech(ctx.getApplicationContext(), s -> {
+        TextToSpeech.OnInitListener listener = s -> {
             status[0] = s;
             init.countDown();
-        });
+        };
+        Context app = ctx.getApplicationContext();
+        TextToSpeech tts = enginePackage == null || enginePackage.isEmpty()
+                ? new TextToSpeech(app, listener)
+                : new TextToSpeech(app, listener, enginePackage);
         try {
-            if (!init.await(15, TimeUnit.SECONDS) || status[0] != TextToSpeech.SUCCESS) {
+            if (!init.await(20, TimeUnit.SECONDS) || status[0] != TextToSpeech.SUCCESS) {
                 throw new Exception("Sprachausgabe konnte nicht gestartet werden");
             }
-            int lang = tts[0].setLanguage(Locale.GERMANY);
-            if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                throw new Exception("Deutsche Stimme fehlt – bitte in den Android-Einstellungen unter Sprachausgabe installieren");
+            if (voiceName != null && !voiceName.isEmpty()) {
+                Voice chosen = null;
+                Set<Voice> voices = tts.getVoices();
+                if (voices != null) {
+                    for (Voice v : voices) if (voiceName.equals(v.getName())) chosen = v;
+                }
+                if (chosen == null || tts.setVoice(chosen) != TextToSpeech.SUCCESS) {
+                    throw new Exception("Stimme „" + voiceName + "“ ist nicht verfügbar");
+                }
+            } else {
+                int lang = tts.setLanguage(Locale.GERMANY);
+                if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    throw new Exception("Deutsche Stimme fehlt – bitte in den Android-Einstellungen unter Sprachausgabe installieren");
+                }
             }
             CountDownLatch done = new CountDownLatch(1);
             boolean[] ok = {false};
-            tts[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String id) { }
                 @Override public void onDone(String id) { ok[0] = true; done.countDown(); }
                 @Override public void onError(String id) { done.countDown(); }
             });
             if (out.exists()) out.delete();
-            int r = tts[0].synthesizeToFile(text, new Bundle(), out, "gruss");
+            int r = tts.synthesizeToFile(text, new Bundle(), out, "gruss");
             if (r != TextToSpeech.SUCCESS) throw new Exception("Sprachausgabe hat abgelehnt");
-            if (!done.await(30, TimeUnit.SECONDS) || !ok[0] || out.length() < 100) {
+            if (!done.await(60, TimeUnit.SECONDS) || !ok[0] || out.length() < 100) {
                 throw new Exception("Sprachausgabe hat keine Datei erzeugt");
             }
         } finally {
-            tts[0].shutdown();
+            tts.shutdown();
         }
     }
 

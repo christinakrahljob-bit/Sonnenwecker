@@ -1,13 +1,12 @@
 package de.christina.sonnenwecker;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -24,10 +23,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.Calendar;
-import java.util.Locale;
 
-/** Begrüßung eines Weckers bearbeiten: Text mit Bausteinen, Mittagswetter-Tage, Vorschau zum Anhören. */
-public class GreetingActivity extends Activity {
+/** Begrüßung eines Weckers bearbeiten: Text mit Bausteinen, Mittagswetter-Tage, Stimme, Vorschau zum Anhören. */
+public class GreetingActivity extends Activity implements VoicePlayer.Listener {
     public static final String EXTRA_ALARM = "alarm";
     private static final int SNACK_MS = 6000;
 
@@ -39,7 +37,8 @@ public class GreetingActivity extends Activity {
 
     private TokenEditText field;
     private LinearLayout middayBox, snackbar;
-    private TextView previewCaption, previewText, listenLabel;
+    private TextView previewCaption, previewText, listenLabel, voiceText;
+    private LinearLayout voiceRow;
     private ImageView listenIcon;
 
     private String undoText;
@@ -47,9 +46,7 @@ public class GreetingActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideSnack = this::hideSnackbar;
 
-    private TextToSpeech tts;
-    private boolean ttsInitDone, ttsReady, speaking;
-    private String pendingSpeech;
+    private VoicePlayer player;
 
     private String forecast;
     private boolean forecastLoading = true;
@@ -84,6 +81,7 @@ public class GreetingActivity extends Activity {
         root.addView(body);
         buildText(body, alarm);
         buildMidday(body, alarm);
+        buildVoice(body);
         buildPreview(body);
         TextView foot = ui.text("Änderungen werden sofort gespeichert.", 13, ui.p.muted);
         foot.setGravity(Gravity.CENTER);
@@ -100,7 +98,13 @@ public class GreetingActivity extends Activity {
         updateMiddayVisibility();
         updatePreview();
         loadForecast();
-        tts = new TextToSpeech(getApplicationContext(), status -> runOnUiThread(() -> onTtsInit(status)));
+        player = new VoicePlayer(this, this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateVoice(); // nach der Stimmenauswahl
     }
 
     // ---------- Aufbau ----------
@@ -232,6 +236,34 @@ public class GreetingActivity extends Activity {
         card.addView(ui.text("An anderen Tagen lässt der Lautsprecher diesen Baustein weg.", 13, ui.p.muted), ui.top(10));
         middayBox.addView(card, ui.fill());
         body.addView(middayBox, ui.fill());
+    }
+
+    private void buildVoice(LinearLayout body) {
+        body.addView(ui.section("Stimme"), ui.top(8));
+        voiceRow = ui.row();
+        voiceRow.setMinimumHeight(ui.dp(56));
+        voiceRow.setPadding(ui.dp(16), ui.dp(8), ui.dp(12), ui.dp(8));
+        voiceRow.setBackground(ui.ripple(ui.shape(ui.p.surface, 20), 20));
+        voiceRow.addView(ui.icon(R.drawable.i_speaker, ui.p.accent, 20));
+        voiceText = ui.text("", 16, ui.p.text);
+        LinearLayout.LayoutParams l = ui.weight();
+        l.leftMargin = ui.dp(12);
+        voiceRow.addView(voiceText, l);
+        voiceRow.addView(ui.icon(R.drawable.i_chevron, ui.p.muted, 20));
+        voiceRow.setClickable(true);
+        voiceRow.setFocusable(true);
+        voiceRow.setOnClickListener(v -> startActivity(new Intent(this, VoiceActivity.class)
+                .putExtra(VoiceActivity.EXTRA_ALARM, alarmId)));
+        body.addView(voiceRow, ui.fill());
+        updateVoice();
+    }
+
+    private void updateVoice() {
+        if (voiceText == null) return;
+        Alarm a = store.get(alarmId);
+        String label = a != null ? VoiceSpec.label(a.voice, a.voiceLabel) : VoiceSpec.DEFAULT_LABEL;
+        voiceText.setText(label);
+        voiceRow.setContentDescription("Stimme: " + label + ". Ändern");
     }
 
     private void buildPreview(LinearLayout body) {
@@ -415,31 +447,9 @@ public class GreetingActivity extends Activity {
 
     // ---------- Anhören auf dem Handy ----------
 
-    private void onTtsInit(int status) {
-        ttsInitDone = true;
-        if (isFinishing() || isDestroyed()) return;
-        if (status == TextToSpeech.SUCCESS) {
-            int r = tts.setLanguage(Locale.GERMANY);
-            ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED;
-            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                @Override public void onStart(String id) { }
-                @Override public void onDone(String id) { runOnUiThread(() -> setSpeaking(false)); }
-                @Override public void onError(String id) { runOnUiThread(() -> setSpeaking(false)); }
-                @Override public void onStop(String id, boolean interrupted) { runOnUiThread(() -> setSpeaking(false)); }
-            });
-        }
-        if (pendingSpeech != null) {
-            String s = pendingSpeech;
-            pendingSpeech = null;
-            speak(s);
-        }
-    }
-
     private void toggleListen() {
-        if (speaking) {
-            pendingSpeech = null;
-            if (tts != null) tts.stop();
-            setSpeaking(false);
+        if (player.current() != null) {
+            player.stop();
             return;
         }
         String text = spoken(false);
@@ -447,27 +457,21 @@ public class GreetingActivity extends Activity {
             Toast.makeText(this, "Der Text ist leer – morgens läuft dann nur das Radio.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (!ttsInitDone) {
-            pendingSpeech = text;
-            setSpeaking(true);
-            return;
-        }
-        speak(text);
+        Alarm a = store.get(alarmId);
+        player.play(a != null ? a.voice : VoiceSpec.DEFAULT, text);
     }
 
-    private void speak(String text) {
-        if (!ttsReady) {
-            setSpeaking(false);
-            Toast.makeText(this, "Die deutsche Stimme fehlt – bitte unter „Status und Einrichtung“ prüfen.",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-        setSpeaking(true);
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "vorschau");
+    @Override
+    public void onState(String spec, boolean playing) {
+        setSpeaking(playing);
+    }
+
+    @Override
+    public void onError(String spec, String message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
 
     private void setSpeaking(boolean on) {
-        speaking = on;
         if (listenIcon == null) return;
         listenIcon.setImageResource(on ? R.drawable.i_stop : R.drawable.i_play);
         listenLabel.setText(on ? "Anhören stoppen" : "Auf dem Handy anhören");
@@ -476,17 +480,13 @@ public class GreetingActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (speaking) {
-            pendingSpeech = null;
-            if (tts != null) tts.stop();
-            setSpeaking(false);
-        }
+        if (player != null) player.stop();
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacks(hideSnack);
-        if (tts != null) tts.shutdown();
+        if (player != null) player.release();
         super.onDestroy();
     }
 }

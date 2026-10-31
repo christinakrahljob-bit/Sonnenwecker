@@ -26,6 +26,10 @@ public final class Alarm {
     public String greeting = Greeting.STANDARD;
     /** Tage, an denen der Baustein {Mittagswetter} gesprochen wird (Bitmaske wie {@link #days}). */
     public int middayDays = DEFAULT_MIDDAY;
+    /** Stimme der Begrüßung (siehe {@link VoiceSpec}); leer = Standardstimme des Handys. */
+    public String voice = "";
+    /** Anzeigename der Stimme, z. B. „Google Cloud · Aoede (weiblich)“. */
+    public String voiceLabel = "";
 
     public Alarm(int id, int hour, int minute) {
         this.id = id;
@@ -141,7 +145,8 @@ public final class Alarm {
         return new JSONObject()
                 .put("id", id).put("h", hour).put("m", minute)
                 .put("days", days).put("on", enabled).put("label", label)
-                .put("greet", greeting).put("mdays", middayDays);
+                .put("greet", greeting).put("mdays", middayDays)
+                .put("voice", voice).put("voiceLabel", voiceLabel);
     }
 
     static Alarm fromJson(JSONObject o) {
@@ -158,6 +163,8 @@ public final class Alarm {
         a.label = o.optString("label", "");
         a.greeting = o.has("greet") ? o.optString("greet", Greeting.STANDARD) : Greeting.STANDARD;
         a.middayDays = o.has("mdays") ? o.optInt("mdays", defaultMidday) : defaultMidday;
+        a.voice = o.optString("voice", "");
+        a.voiceLabel = o.optString("voiceLabel", "");
         return a;
     }
 }

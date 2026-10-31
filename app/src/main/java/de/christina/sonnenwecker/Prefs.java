@@ -87,6 +87,13 @@ public final class Prefs {
     public String weatherMiddayRain() { return sp.getString("weatherMiddayRain", ""); }
     public long weatherFor() { return sp.getLong("weatherFor", 0); }
 
+    // --- Stimmen ---
+    /** API-Schlüssel für die Premium-Stimmen von Google Cloud (bleibt nur auf dem Handy). */
+    public String cloudKey() { return sp.getString("cloudKey", ""); }
+    /** Zuletzt gewählte Stimme – Vorgabe für neue Wecker. */
+    public String lastVoice() { return sp.getString("lastVoice", ""); }
+    public String lastVoiceLabel() { return sp.getString("lastVoiceLabel", ""); }
+
     // --- Lautsprecher und Radio ---
     public String radioUrl() { return sp.getString("radioUrl", DEFAULT_RADIO); }
     public String radioTitle() { return sp.getString("radioTitle", DEFAULT_RADIO_TITLE); }

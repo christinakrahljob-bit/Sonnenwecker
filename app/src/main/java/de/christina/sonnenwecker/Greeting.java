@@ -22,6 +22,13 @@ public final class Greeting {
     static final Pattern TOKEN = Pattern.compile("\\{(Name|Wochentag|Datum|Uhrzeit|Wetter heute|Mittagswetter)\\}");
     private static final String[] MONTHS = {"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
             "August", "September", "Oktober", "November", "Dezember"};
+    /** Ordnungszahlen ohne Endung: 1 → „erst“ (… „erste“, „ersten“, „erster“). */
+    private static final String[] ORDINALS = {"", "erst", "zweit", "dritt", "viert", "fünft", "sechst", "siebt",
+            "acht", "neunt", "zehnt", "elft", "zwölft", "dreizehnt", "vierzehnt", "fünfzehnt", "sechzehnt",
+            "siebzehnt", "achtzehnt", "neunzehnt", "zwanzigst", "einundzwanzigst", "zweiundzwanzigst",
+            "dreiundzwanzigst", "vierundzwanzigst", "fünfundzwanzigst", "sechsundzwanzigst", "siebenundzwanzigst",
+            "achtundzwanzigst", "neunundzwanzigst", "dreißigst", "einunddreißigst"};
+    private static final Pattern WORD_BEFORE = Pattern.compile("([A-Za-zÄÖÜäöüß]+)\\s*$");
 
     private Greeting() { }
 
@@ -44,11 +51,48 @@ public final class Greeting {
         return Alarm.LONG[Alarm.dayIndex(c.get(Calendar.DAY_OF_WEEK))];
     }
 
-    /** „2. November“ – die Sprachausgabe beugt die Ordnungszahl passend („der zweite November“). */
+    /** „2. November“ – für die Anzeige. Gesprochen wird das Datum mit {@link #spokenDate}. */
     public static String date(long when) {
         Calendar c = Calendar.getInstance();
         c.setTimeInMillis(when);
         return c.get(Calendar.DAY_OF_MONTH) + ". " + MONTHS[c.get(Calendar.MONTH)];
+    }
+
+    /**
+     * Das Datum so, wie es gesprochen wird – mit ausgeschriebener Ordnungszahl, passend zum Wort davor:
+     * „der zweite November“, „am zweiten November“, ohne Artikel „zweiter November“.
+     * So kann keine Stimme „2.“ falsch lesen.
+     */
+    public static String spokenDate(long when, String wordBefore) {
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(when);
+        String w = wordBefore == null ? "" : wordBefore.toLowerCase(java.util.Locale.GERMAN);
+        String ending;
+        switch (w) {
+            case "der": case "die": case "das":
+                ending = "e";
+                break;
+            case "am": case "dem": case "vom": case "zum": case "beim": case "den": case "im":
+                ending = "en";
+                break;
+            default:
+                ending = "er";
+                break;
+        }
+        return ORDINALS[c.get(Calendar.DAY_OF_MONTH)] + ending + " " + MONTHS[c.get(Calendar.MONTH)];
+    }
+
+    /** Das Wort direkt vor einer Stelle im Text (ohne Leerzeichen dazwischen), sonst leer – z. B. „der“. */
+    static String wordBefore(CharSequence text, int pos) {
+        Matcher m = WORD_BEFORE.matcher(text.subSequence(0, pos));
+        return m.find() ? m.group(1) : "";
+    }
+
+    /** Beginnt an der Stelle ein Satz (Textanfang oder nach . ! ?)? */
+    static boolean sentenceStart(CharSequence text, int pos) {
+        int i = pos - 1;
+        while (i >= 0 && Character.isWhitespace(text.charAt(i))) i--;
+        return i < 0 || ".!?".indexOf(text.charAt(i)) >= 0;
     }
 
     /** „6 Uhr 45“ bzw. „7 Uhr“ */
@@ -73,7 +117,10 @@ public final class Greeting {
             switch (m.group(1)) {
                 case "Name": v = name; break;
                 case "Wochentag": v = weekday(when); break;
-                case "Datum": v = date(when); break;
+                case "Datum":
+                    v = spokenDate(when, wordBefore(template, m.start()));
+                    if (sentenceStart(template, m.start())) v = Character.toUpperCase(v.charAt(0)) + v.substring(1);
+                    break;
                 case "Uhrzeit": v = time(when); break;
                 case "Wetter heute": v = weather; break;
                 default: v = midday; break;

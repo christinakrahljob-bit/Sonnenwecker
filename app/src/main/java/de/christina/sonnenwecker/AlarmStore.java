@@ -60,6 +60,8 @@ public final class AlarmStore {
         for (Alarm a : list) id = Math.max(id, a.id + 1);
         Alarm a = new Alarm(id, hour, minute);
         a.middayDays = prefs.defaultMiddayMask();
+        a.voice = prefs.lastVoice();         // neue Wecker sprechen mit der zuletzt gewählten Stimme
+        a.voiceLabel = prefs.lastVoiceLabel();
         list.add(a);
         saveAll(list);
         return a;
